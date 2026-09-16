@@ -68,6 +68,10 @@ def test_search_and_empty():
     r5 = client().get("/search")
     assert r5.status_code == 200
     assert "请输入书名" in r5.text
+    r6 = client().get("/search?q=god&lang=&genre=&year=&recommended=&sort=year")
+    assert r6.status_code == 200
+    assert "int_parsing" not in r6.text
+    assert "God" in r6.text or "god" in r6.text.lower() or "检索" in r6.text
 
 
 def test_archive_unknown_month():

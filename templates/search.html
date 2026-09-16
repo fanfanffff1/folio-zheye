@@ -64,10 +64,16 @@
     year.removeAttribute("required");
     year.setAttribute("aria-required", "false");
   }
-  q.addEventListener("input", function () {
+    q.addEventListener("input", function () {
     clearTimeout(timer);
     if (!q.value.trim()) return;
     timer = setTimeout(function () { form.requestSubmit(); }, 450);
+  });
+  form.addEventListener("submit", function () {
+    Array.prototype.forEach.call(form.querySelectorAll("input, select"), function (el) {
+      if (el.name === "q" || el.name === "sort") return;
+      if (!String(el.value || "").trim()) el.disabled = true;
+    });
   });
 })();
 </script>

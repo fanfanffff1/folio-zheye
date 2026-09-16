@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -236,26 +236,37 @@ def explore(request: Request, genre: str = "", db: Session = Depends(get_db)):
 @app.get("/archive")
 def archive(
     request: Request,
-    year: Optional[int] = None,
-    month: Optional[int] = None,
+    year: Optional[str] = Query(default=None),
+    month: Optional[str] = Query(default=None),
     lang: str = "",
     genre: str = "",
     db: Session = Depends(get_db),
 ):
+    def to_int(value: Optional[str]):
+        raw = (value or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+
+    year_n = to_int(year)
+    month_n = to_int(month)
     q = db.query(Book).filter(Book.is_recommended.is_(True), Book.issue_id.isnot(None))
-    if year or month:
+    if year_n or month_n:
         q = q.join(Issue, Book.issue_id == Issue.id)
-        if year:
-            q = q.filter(Issue.year == year)
-        if month:
-            q = q.filter(Issue.month == month)
+        if year_n:
+            q = q.filter(Issue.year == year_n)
+        if month_n:
+            q = q.filter(Issue.month == month_n)
     if lang:
         q = q.filter(Book.language_code == lang)
     if genre:
         q = q.filter(or_(Book.primary_genre == genre, Book.genres.contains(genre)))
     books = q.order_by(Book.language_code, Book.featured_rank, Book.id).all()
     if not books:
-        if (year and year != ISSUE_YEAR) or (month and month != ISSUE_MONTH):
+        if (year_n and year_n != ISSUE_YEAR) or (month_n and month_n != ISSUE_MONTH):
             empty_reason = "尚无该期书单。目前仅发布 2026 年 9 月号。"
         else:
             empty_reason = "这一期还没有可展示的书单。"
@@ -269,12 +280,12 @@ def archive(
             title="往期推荐",
             description="按年份与月份归档的编辑荐读书单。",
             books=books,
-            year=year or ISSUE_YEAR,
-            month=month or ISSUE_MONTH,
+            year=year_n or ISSUE_YEAR,
+            month=month_n or ISSUE_MONTH,
             lang=lang,
             genre=genre,
             empty_reason=empty_reason,
-            current_only=not (year or month) or (year == ISSUE_YEAR and (not month or month == ISSUE_MONTH)),
+            current_only=not (year_n or month_n) or (year_n == ISSUE_YEAR and (not month_n or month_n == ISSUE_MONTH)),
         ),
     )
 
@@ -285,7 +296,7 @@ def search(
     q: str = "",
     lang: str = "",
     genre: str = "",
-    year: str = "",
+    year: Optional[str] = Query(default=None),
     recommended: str = "",
     sort: str = "year",
     db: Session = Depends(get_db),
