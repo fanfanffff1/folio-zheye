@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="brand-mark">FOLIO<small>折页 · {{ issue_year }}.{{ '%02d'|format(issue_month) }}</small></div>
+    <h1>以英语为轴，通向六种原版阅读</h1>
+    <p>这不是书店。我们整理原版书的基本资料、中文荐读与读者交流，本期选出英语及其他五种语言各八本 2026 年首次出版的新书。封面错落如杂志，文字尽量克制。</p>
+    <a class="cta" href="/recommendations/en">进入本期英文推荐</a>
+  </div>
+  <div class="shelf" aria-label="本期英文八本封面">
+    {% for book in english %}
+    <a href="/books/{{ book.slug }}" style="transform: translateY({{ loop.index0 % 2 * 18 }}px)">
+      <img class="cover" src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="180" height="270" loading="eager" />
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <p class="kicker">English · Issue</p>
+  <h2>英文新书重点推荐</h2>
+  <div class="cards">
+    {% for book in english %}
+    <article class="card">
+      <a href="/books/{{ book.slug }}"><img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" loading="lazy" /></a>
+      <p class="num">0{{ loop.index }}</p>
+      <h3><a href="/books/{{ book.slug }}">{{ book.original_title }}</a></h3>
+      <p>{{ book.chinese_title }} · {{ book.author.name if book.author else "" }}</p>
+      <p class="quote">{{ book.editor_quote_zh }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <p class="kicker">Languages</p>
+  <h2>其他语言入口</h2>
+  <div class="lang-grid">
+    {% for block in others %}
+    <article class="lang-box">
+      <p class="kicker">{{ block.meta.native }}</p>
+      <h3><a href="/recommendations/{{ block.code }}">{{ block.meta.zh }}原版新书</a></h3>
+      <p>本期八本 2026 年新书，可单独访问、分享。</p>
+      <div class="mini-covers">
+        {% for book in block.books %}
+        <a href="/books/{{ book.slug }}"><img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" loading="lazy" /></a>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <p class="kicker">Genres</p>
+  <h2>按类型探索</h2>
+  <div class="genre-row">
+    {% for g, n in genre_counts %}
+    <a class="chip" href="/explore?genre={{ g }}">{{ g }} · {{ n }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <p class="kicker">Readers</p>
+  <h2>最近评论与高评分</h2>
+  {% if top_rated %}
+  <div class="cards">
+    {% for item in top_rated %}
+    <article class="card">
+      <h3><a href="/books/{{ item.book.slug }}">{{ item.book.original_title }}</a></h3>
+      <p>平均 {{ item.avg }} 分 · {{ item.n }} 人评分</p>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">暂无评分。读者打分后会出现在这里。</p>
+  {% endif %}
+  {% if recent_view %}
+  {% for item in recent_view %}
+  <article class="comment">
+    <p><a href="/books/{{ item.book.slug }}">{{ item.book.original_title }}</a> · {{ item.comment.nickname }}</p>
+    <p>{{ item.comment.content }}</p>
+  </article>
+  {% endfor %}
+  {% else %}
+  <p class="empty">暂无评论。</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <p class="kicker">Masthead</p>
+  <h2>网站理念</h2>
+  <p class="prose">FOLIO 折页相信原版阅读是一种身体记忆：语言的节奏、书名的字形、出版社的气味，都不该被购物车打断。我们做杂志式荐读，不做商城。英语是主轴，其他语言是同等尊严的邻室。</p>
+</section>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="pager">
+  {% if prev_b %}<a href="/books/{{ prev_b.slug }}">上一本</a>{% else %}<span></span>{% endif %}
+  {% if next_b %}<a href="/books/{{ next_b.slug }}">下一本</a>{% else %}<a href="/recommendations/{{ book.language_code }}">返回本期</a>{% endif %}
+</div>
+<article class="spread">
+  <div>
+    <img class="cover-lg" src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" />
+  </div>
+  <div>
+    <p class="kicker">{{ book.language_name }} · {{ book.primary_genre }}</p>
+    <h1 class="title-en">{{ book.original_title }}</h1>
+    <p class="title-zh">{{ book.chinese_title or "暂译待补" }}</p>
+    <p>{{ book.author.name if book.author else "" }}{% if book.author and book.author.localized_name %} / {{ book.author.localized_name }}{% endif %}</p>
+    <div class="meta">
+      <span>{{ book.publisher }}</span>
+      <span>{{ book.publication_date or book.publication_year or "出版年待核" }}</span>
+      {% if book.isbn13 %}<span>ISBN {{ book.isbn13 }}</span>{% elif book.isbn10 %}<span>ISBN {{ book.isbn10 }}</span>{% endif %}
+      <span>核验：{{ "已核验" if book.verification_status == "verified" else "待核验" }}</span>
+    </div>
+    <div class="tags">{% for t in book.tag_list() %}<span class="tag">{{ t }}</span>{% endfor %}</div>
+    <p class="quote">{{ book.editor_quote_zh or book.reading_mood_zh }}</p>
+    {% if book.full_description_zh %}
+    <h2>内容简介</h2>
+    <p class="prose">{{ book.full_description_zh }}</p>
+    <h2>推荐理由</h2>
+    <p class="prose">{{ book.recommendation_zh }}</p>
+    <div class="audience"><b>适合人群</b>{{ book.audience_zh }}</div>
+    <p>阅读气质：{{ book.reading_mood_zh }}</p>
+    {% if book.author and book.author.biography_zh %}
+    <h2>作者</h2>
+    <p class="prose">{{ book.author.biography_zh }}</p>
+    {% endif %}
+    {% else %}
+    <h2>简介</h2>
+    <p class="prose">{{ book.short_description_zh }}</p>
+    {% endif %}
+  </div>
+</article>
+
+<section class="section" id="ratings">
+  <h2>读者评分</h2>
+  <p id="rating-summary">
+    {% if summary.count %}平均 {{ summary.average }} 分 · {{ summary.count }} 人评分
+    {% else %}暂无评分{% endif %}
+  </p>
+  <div class="stars" role="group" aria-label="为这本书评分" data-stars data-slug="{{ book.slug }}" data-csrf="{{ csrf }}" data-mine="{{ summary.mine or '' }}">
+    {% for n in [1,2,3,4,5] %}
+    <button type="button" data-score="{{ n }}" aria-label="{{ n }}星">{{ "★" if summary.mine and summary.mine >= n else "☆" }}</button>
+    {% endfor %}
+  </div>
+  <ul id="rating-dist">
+    {% for n in [5,4,3,2,1] %}
+    <li>{{ n }}星 {{ summary.distribution[n] }}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="section" id="comments">
+  <h2>读者评论</h2>
+  <form id="comment-form">
+    <label>昵称 <input name="nickname" maxlength="24" required /></label>
+    <label>评论 <textarea name="content" rows="4" maxlength="2000" required></textarea></label>
+    <input type="hidden" name="csrf" value="{{ csrf }}" />
+    <button type="submit">发布评论</button>
+    <p class="status" id="comment-status" role="status" aria-live="polite"></p>
+  </form>
+  <p>
+    排序
+    <button type="button" data-sort="newest">最新</button>
+    <button type="button" data-sort="oldest">最早</button>
+    <button type="button" data-sort="popular">最受欢迎</button>
+  </p>
+  <div id="comment-list"></div>
+</section>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Book",
+  "name": {{ book.original_title | tojson }},
+  "inLanguage": {{ book.language_code | tojson }},
+  "author": {"@type": "Person", "name": {{ (book.author.name if book.author else "") | tojson }}},
+  "publisher": {{ book.publisher | tojson }}
+  {% if book.isbn13 or book.isbn10 %},"isbn": {{ (book.isbn13 or book.isbn10) | tojson }}{% endif %}
+}
+</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/comments.js" defer></script>
+{% endblock %}

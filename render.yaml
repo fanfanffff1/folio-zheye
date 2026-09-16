@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: folio-zheye
+    runtime: docker
+    region: singapore
+    healthCheckPath: /healthz
+    envVars:
+      - key: FOLIO_SECRET_KEY
+        generateValue: true
+      - key: FOLIO_ADMIN_KEY
+        generateValue: true
+      - key: FOLIO_DB
+        value: /app/data/folio.db
+      - key: PORT
+        value: 8000
+    disk:
+      name: folio-data
+      mountPath: /app/data
+      sizeGB: 1
+

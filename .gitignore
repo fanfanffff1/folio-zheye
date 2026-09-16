@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+data/folio.db
+data/test.db
+data/reports/enrich-cache.json
+.venv/
+.env
+.DS_Store
+.pytest_cache/
