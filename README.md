@@ -42,7 +42,17 @@ docker build -t folio .
 docker run -p 8000:8000 -e FOLIO_SECRET_KEY=... -e FOLIO_ADMIN_KEY=... folio
 ```
 
-部署到 Render / Fly / Railway：本仓库根目录已有 `Dockerfile` 和 `render.yaml`。在 Render 控制台选择 **New → Blueprint**，连接本 GitHub 仓库即可；密钥 `FOLIO_SECRET_KEY` / `FOLIO_ADMIN_KEY` 会自动生成，SQLite 写在 1GB 磁盘 `/app/data`。
+## 部署到 Render
+
+仓库：<https://github.com/fanfanffff1/folio-zheye>
+
+根目录已有 `Dockerfile` 和 `render.yaml`。登录 Render 后：
+
+1. 打开 [Deploy to Render](https://render.com/deploy?repo=https://github.com/fanfanffff1/folio-zheye)，或在控制台选择 **New → Blueprint**，连接这个 GitHub 仓库。
+2. 确认服务名 `folio-zheye`、区域 Singapore、健康检查 `/healthz`。
+3. `FOLIO_SECRET_KEY` 与 `FOLIO_ADMIN_KEY` 会自动生成；评论数据写在 1GB 磁盘 `/app/data`。
+
+免费套餐如果无法挂磁盘，评论在每次部署后会重置，网站本身仍可访问。
 
 ## 导入下一批 XLSX
 
