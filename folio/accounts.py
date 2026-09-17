@@ -15,7 +15,7 @@ from .auth import (
     staff_home, token_hash, trust_device, trusted_device_count, validate_email, validate_nickname,
     validate_password, validate_username, verify_password, decorate_people,
 )
-from .config import ADMIN_DEVICE_LIMIT, STATIC_DIR
+from .config import ADMIN_DEVICE_LIMIT, STATIC_DIR, is_owner_admin_email
 from .models import (
     AuthDevice, Book, BookFavorite, BookSubmission, Comment, DeviceChallenge,
     EditorApplication, Notification, SessionLocal, User,
@@ -181,12 +181,19 @@ def register(app, templates, base_ctx):
             email=email,
             password_hash=hash_password(password),
             nickname=nickname,
-            role="user",
+            role="admin" if is_owner_admin_email(email) else "user",
             status="active",
         )
         db.add(user)
         db.flush()
-        token = create_session(db, user, False)
+        device_id = None
+        secret = getattr(request.state, "device_secret", "") or ""
+        if user.role == "admin" and secret:
+            trusted = trust_device(db, user, secret, device_label(request))
+            device_id = trusted.id
+            if not next_url or next_url in ("/", "/login", "/account", "/register"):
+                next_url = staff_home("admin")
+        token = create_session(db, user, False, device_id)
         db.commit()
         resp = RedirectResponse(next_url, status_code=303)
         set_session_cookie(request, resp, token, False)

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>书籍检索</h1>
-<p>只需输入关键词即可检索。出版年、语言、类型都是可选项，留空表示不限制。</p>
+<h1>高级搜索</h1>
+<p>在这里可以按语言、类型、出版年和是否推荐缩小范围。只需关键词也可以检索；其余条件留空表示不限制。</p>
 <form class="search-bar" method="get" action="/search">
   <label class="sr-only" for="q">关键词（必填）</label>
   <input id="q" name="q" value="{{ q }}" required placeholder="书名 / 作者 / ISBN / 关键词（必填）" />

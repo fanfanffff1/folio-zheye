@@ -40,28 +40,33 @@
         <button class="menu-close" type="button" data-menu-close>关闭</button>
         <a href="/recommendations" {% if nav_current=="issue" %}aria-current="page"{% endif %}>本期新书推荐</a>
         <a href="/archive" {% if nav_current=="archive" %}aria-current="page"{% endif %}>往期推荐</a>
-        <a href="/search" {% if nav_current=="search" %}aria-current="page"{% endif %}>书籍检索</a>
         <a href="/recommend" {% if nav_current=="submit" %}aria-current="page"{% endif %} data-need-login="recommend">推荐一本书</a>
         {% if role == "admin" %}
         <a href="/admin/dashboard" {% if nav_current=="admin" %}aria-current="page"{% endif %}>管理控制台</a>
         {% elif role == "editor" %}
         <a href="/editor/workbench" {% if nav_current=="admin" %}aria-current="page"{% endif %}>编辑工作台</a>
         {% endif %}
-        <form class="header-search nav-search" action="/search" method="get" role="search">
-          <label class="sr-only" for="nav-q-mobile">搜索书名、作者或关键词</label>
-          <input id="nav-q-mobile" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" />
-          <button type="submit" aria-label="检索">检索</button>
-        </form>
+        <div class="header-search-wrap nav-search-wrap">
+          <form class="header-search nav-search" action="/search" method="get" role="search">
+            <label class="sr-only" for="nav-q-mobile">搜索书名、作者或关键词</label>
+            <input id="nav-q-mobile" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" />
+            <button type="submit" aria-label="检索">检索</button>
+          </form>
+          <a class="search-advanced" href="/search"{% if nav_current=="search" %} aria-current="page"{% endif %}>高级搜索</a>
+        </div>
       </nav>
       <div class="header-tools">
-        <form class="header-search desk-search" action="/search" method="get" role="search" data-suggest>
-          <label class="sr-only" for="nav-q">搜索书名、作者或关键词</label>
-          <input id="nav-q" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" autocomplete="off" />
-          <button type="submit" aria-label="检索">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16.2 16.2L21 21"/></svg>
-          </button>
-          <ul class="suggest-box" data-suggest-list hidden></ul>
-        </form>
+        <div class="header-search-wrap{% if nav_current=='search' %} is-current{% endif %}">
+          <form class="header-search desk-search" action="/search" method="get" role="search" data-suggest>
+            <label class="sr-only" for="nav-q">搜索书名、作者或关键词</label>
+            <input id="nav-q" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" autocomplete="off" />
+            <button type="submit" aria-label="检索">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16.2 16.2L21 21"/></svg>
+            </button>
+            <ul class="suggest-box" data-suggest-list hidden></ul>
+          </form>
+          <a class="search-advanced" href="/search"{% if nav_current=="search" %} aria-current="page"{% endif %}>高级搜索</a>
+        </div>
         <a class="icon-btn" href="/#languages" aria-label="多语言入口">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.8 4 6 4 9s-1.4 6.2-4 9c-2.6-2.8-4-6-4-9s1.4-6.2 4-9z"/></svg>
         </a>
@@ -94,7 +99,7 @@
       <p class="footer-links">
         <a href="/recommendations">本期新书推荐</a>
         <a href="/archive">往期推荐</a>
-        <a href="/search">书籍检索</a>
+        <a href="/search">高级搜索</a>
         <a href="/recommend">推荐一本书</a>
       </p>
       <p>一起读书，一起交流。如果有什么想交流的，请联系：{{ email }}</p>

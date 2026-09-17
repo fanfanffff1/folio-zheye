@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .config import (
     DEVICE_COOKIE, GUEST_COOKIE, SESSION_COOKIE,
     SESSION_DAYS, SESSION_REMEMBER_DAYS, SECRET_KEY,
+    OWNER_ADMIN_USERNAME, is_owner_admin_email, owner_admin_emails,
 )
 from .models import AuthDevice, AuthSession, BookFavorite, DeviceChallenge, GuestIdentity, SessionLocal, User
 from .security import rate_limit, sign, unsign
@@ -213,12 +214,22 @@ def trust_device(db: Session, user: User, secret: str, label: str) -> AuthDevice
 def promote_owner_admin() -> None:
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.username == "fan").one_or_none()
-        if not user:
-            return
-        user.role = "admin"
-        user.status = "active"
-        db.commit()
+        emails = owner_admin_emails()
+        users = []
+        if emails:
+            users.extend(db.query(User).filter(User.email.in_(emails)).all())
+        named = db.query(User).filter(User.username == OWNER_ADMIN_USERNAME).one_or_none()
+        if named:
+            users.append(named)
+        seen = set()
+        for user in users:
+            if user.id in seen:
+                continue
+            seen.add(user.id)
+            user.role = "admin"
+            user.status = "active"
+        if seen:
+            db.commit()
     except Exception:
         db.rollback()
     finally:
@@ -437,7 +448,7 @@ def bootstrap_admin() -> None:
                 user.role = "admin"
                 db.commit()
             return
-        username = validate_username(os.environ.get("FOLIO_ADMIN_USERNAME") or "admin")
+        username = validate_username(os.environ.get("FOLIO_ADMIN_USERNAME") or "fan")
         if db.query(User).filter(User.username == username).one_or_none():
             username = "admin_" + secrets.token_hex(3)
         db.add(User(

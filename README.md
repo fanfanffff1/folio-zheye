@@ -50,7 +50,7 @@ docker run -p 8000:8000 -e FOLIO_SECRET_KEY=... -e FOLIO_ADMIN_KEY=... folio
 
 1. 打开 [Deploy to Render](https://render.com/deploy?repo=https://github.com/fanfanffff1/folio-zheye)，或在控制台选择 **New → Blueprint**，连接这个 GitHub 仓库。
 2. 确认服务名 `folio-zheye`、区域 Singapore、健康检查 `/healthz`。
-3. `FOLIO_SECRET_KEY` 与 `FOLIO_ADMIN_KEY` 会自动生成；评论数据写在 1GB 磁盘 `/app/data`。
+3. `FOLIO_SECRET_KEY` 与 `FOLIO_ADMIN_KEY` 会自动生成；`FOLIO_ADMIN_EMAIL` 默认为 `1797098277@qq.com`。用这个邮箱在线上注册后会自动成为管理员。评论数据写在 1GB 磁盘 `/app/data`。
 
 免费套餐如果无法挂磁盘，评论在每次部署后会重置，网站本身仍可访问。
 
@@ -81,12 +81,17 @@ python3 -m folio.seed
 - 密码使用 Argon2（若已安装 `argon2-cffi`）或 PBKDF2 哈希；登录态写在 HttpOnly Cookie `folio_sid`
 - 生产环境请走 HTTPS，Cookie 会自动带 `Secure`
 
-创建管理员账号（启动时若邮箱尚未注册会自动写入）：
+指定管理员邮箱（默认站点联系邮箱 `1797098277@qq.com`）注册后会自动成为管理员。也可用环境变量追加：
 
 ```bash
-export FOLIO_ADMIN_EMAIL='you@example.com'
+export FOLIO_ADMIN_EMAIL='1797098277@qq.com'
+```
+
+启动时会把该邮箱（以及用户名 `fan`）已有账号升为管理员。可选再设密码，以便尚未注册时直接建号：
+
+```bash
 export FOLIO_ADMIN_PASSWORD='长密码'
-export FOLIO_ADMIN_USERNAME='admin'
+export FOLIO_ADMIN_USERNAME='fan'
 ```
 
 也可用原有审核密钥：请求头 `x-folio-admin: $FOLIO_ADMIN_KEY`，或打开 `/admin/login`。

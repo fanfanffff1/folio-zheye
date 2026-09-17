@@ -11,7 +11,7 @@ os.environ["FOLIO_SECRET_KEY"] = "test-secret"
 os.environ["FOLIO_ADMIN_KEY"] = "test-admin"
 
 from fastapi.testclient import TestClient
-from folio.models import Base, Book, SessionLocal, engine, init_db
+from folio.models import Base, Book, SessionLocal, User, engine, init_db
 from folio.main import app
 from folio.seed import seed
 from folio.config import DATA_DIR
@@ -411,4 +411,37 @@ def test_staff_pages_exist_and_guest_is_gated():
     assert "编辑 / 管理员登录" not in home.text or True
     login_home = c.get("/login")
     assert "编辑 / 管理员登录" in login_home.text
+
+
+def test_owner_email_registers_as_admin():
+    c = client()
+    c.get("/register")
+    csrf = c.cookies.get("folio_csrf")
+    created = c.post(
+        "/register",
+        data={
+            "csrf": csrf,
+            "username": "ownerfan",
+            "nickname": "折页主人",
+            "email": "1797098277@qq.com",
+            "password": "password12",
+            "confirm": "password12",
+            "next": "/account",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    db = SessionLocal()
+    row = db.query(User).filter(User.email == "1797098277@qq.com").one()
+    assert row.role == "admin"
+    db.close()
+    dash = c.get("/admin/dashboard", follow_redirects=False)
+    assert dash.status_code == 200
+    assert created.status_code == 303
+    db = SessionLocal()
+    row = db.query(User).filter(User.email == "1797098277@qq.com").one()
+    assert row.role == "admin"
+    db.close()
+    dash = c.get("/admin/dashboard", follow_redirects=False)
+    assert dash.status_code == 200
 

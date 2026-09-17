@@ -18,6 +18,19 @@ CONTACT_EMAIL = "1797098277@qq.com"
 SECRET_KEY = os.environ.get("FOLIO_SECRET_KEY", "dev-change-me-in-production")
 ADMIN_KEY = os.environ.get("FOLIO_ADMIN_KEY", "dev-admin-change-me")
 EDITOR_KEY = os.environ.get("FOLIO_EDITOR_KEY", "")
+OWNER_ADMIN_USERNAME = (os.environ.get("FOLIO_ADMIN_USERNAME") or "fan").strip().lower()
+
+
+def owner_admin_emails() -> set[str]:
+    emails = {(CONTACT_EMAIL or "").strip().lower()}
+    extra = (os.environ.get("FOLIO_ADMIN_EMAIL") or "").strip().lower()
+    if extra:
+        emails.update(part.strip() for part in extra.split(",") if part.strip())
+    return {e for e in emails if e}
+
+
+def is_owner_admin_email(email: str) -> bool:
+    return (email or "").strip().lower() in owner_admin_emails()
 COOKIE_NAME = "folio_vid"
 CSRF_COOKIE = "folio_csrf"
 ADMIN_COOKIE = "folio_admin"

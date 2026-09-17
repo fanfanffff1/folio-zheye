@@ -9,6 +9,10 @@ services:
         generateValue: true
       - key: FOLIO_ADMIN_KEY
         generateValue: true
+      - key: FOLIO_ADMIN_EMAIL
+        value: 1797098277@qq.com
+      - key: FOLIO_ADMIN_USERNAME
+        value: fan
       - key: FOLIO_DB
         value: /app/data/folio.db
       - key: PORT
@@ -17,4 +21,3 @@ services:
       name: folio-data
       mountPath: /app/data
       sizeGB: 1
-

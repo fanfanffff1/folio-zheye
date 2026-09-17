@@ -546,7 +546,7 @@ def search(
         "search.html",
         base_ctx(
             request,
-            title="书籍检索",
+            title="高级搜索｜FOLIO 折页",
             description="检索全部已整理原版书目与正式推荐。",
             books=books,
             q=keyword,
