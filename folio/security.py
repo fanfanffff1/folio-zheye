@@ -10,8 +10,9 @@ from html import escape
 from fastapi import HTTPException, Request, Response
 
 from .config import (
-    ADMIN_KEY, COMMENT_MAX, COMMENT_MIN, COOKIE_NAME, CSRF_COOKIE, NICK_MAX, NICK_MIN,
-    RATE_LIMIT_POST, RATE_WINDOW_SEC, SECRET_KEY,
+    ADMIN_COOKIE, ADMIN_KEY, COMMENT_MAX, COMMENT_MIN, COOKIE_NAME, CSRF_COOKIE,
+    EDITOR_COOKIE, EDITOR_KEY, NICK_MAX, NICK_MIN, RATE_LIMIT_POST, RATE_WINDOW_SEC,
+    SECRET_KEY, SUBMIT_DAY_LIMIT, SUBMIT_HOUR_LIMIT,
 )
 
 _RATE: dict[str, deque] = defaultdict(deque)
@@ -91,12 +92,60 @@ def is_admin(request: Request) -> bool:
     candidates = [
         request.headers.get("x-folio-admin") or "",
         request.query_params.get("admin") or "",
-        request.cookies.get("folio_admin") or "",
+        request.cookies.get(ADMIN_COOKIE) or "",
     ]
     for value in candidates:
         if value and len(value) == len(ADMIN_KEY) and hmac.compare_digest(value, ADMIN_KEY):
             return True
     return False
+
+
+def is_editor(request: Request) -> bool:
+    if is_admin(request):
+        return True
+    key = (EDITOR_KEY or "").strip()
+    if not key:
+        return False
+    candidates = [
+        request.headers.get("x-folio-editor") or "",
+        request.cookies.get(EDITOR_COOKIE) or "",
+    ]
+    for value in candidates:
+        if value and len(value) == len(key) and hmac.compare_digest(value, key):
+            return True
+    return False
+
+
+def user_role(request: Request) -> str:
+    if is_admin(request):
+        return "admin"
+    if is_editor(request):
+        return "editor"
+    return "reader"
+
+
+def require_staff(request: Request) -> str:
+    role = user_role(request)
+    if role not in ("editor", "admin"):
+        raise HTTPException(403, "没有审核权限。")
+    return role
+
+
+def require_admin(request: Request) -> str:
+    if not is_admin(request):
+        raise HTTPException(403, "需要管理员权限。")
+    return "admin"
+
+
+def submit_rate_ok(request: Request, submitted_times: list) -> None:
+    now = time.time()
+    hour = [t for t in submitted_times if now - t < 3600]
+    day = [t for t in submitted_times if now - t < 86400]
+    if len(hour) >= SUBMIT_HOUR_LIMIT:
+        raise HTTPException(429, "每小时最多提交 3 次推荐，请稍后再试。")
+    if len(day) >= SUBMIT_DAY_LIMIT:
+        raise HTTPException(429, "每天最多提交 10 次推荐，请明天再来。")
+    rate_limit(request, "submit")
 
 
 def html_safe(text: str) -> str:

@@ -57,7 +57,8 @@ def test_home_ok():
     assert "/static/img/lang-it.jpg" in r.text
     assert "page-home" in r.text
     assert "bg-home-desktop.jpg" in r.text
-    assert "英文新书重点推荐" not in r.text
+    assert "推荐一本书" in r.text
+    assert "有一本书，想推荐给大家" in r.text
     assert "其他语言推荐" not in r.text
     for native in ["English", "Français", "Español", "日本語", "한국어", "Italiano"]:
         assert native in r.text
@@ -217,3 +218,68 @@ def test_book_detail_layout():
     missing = c.get("/books/not-a-real-slug")
     assert missing.status_code == 404
     assert "没有找到这本书" in missing.text
+
+
+PNG_1PX = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+)
+INTRO = "这本书写一个在雨里慢慢走路的人如何重新看见日常。" * 3
+
+
+def test_recommend_flow_and_admin_gate():
+    c = client()
+    page = c.get("/recommend")
+    assert page.status_code == 200
+    assert "把你喜欢的书，带给更多人" in page.text
+    assert "提交后不会立即公开" in page.text
+    csrf = c.cookies.get("folio_csrf")
+    cover = c.post(
+        "/api/submissions/cover",
+        data={"csrf": csrf},
+        files={"file": ("cover.png", PNG_1PX, "image/png")},
+    )
+    assert cover.status_code == 200, cover.text
+    sid = cover.json()["id"]
+    blocked = c.post(
+        "/api/submissions/submit",
+        json={"id": sid, "title": "A", "authors": "B", "introduction": "短", "csrf": csrf, "confirmTruth": True, "confirmReview": True},
+    )
+    assert blocked.status_code == 400
+    posted = c.post(
+        "/api/submissions/submit",
+        json={
+            "id": sid,
+            "title": "雨中的折页",
+            "authors": "测试作者",
+            "introduction": INTRO,
+            "csrf": csrf,
+            "confirmTruth": True,
+            "confirmReview": True,
+            "nickname": "fan",
+        },
+    )
+    assert posted.status_code == 200, posted.text
+    number = posted.json()["submissionNumber"]
+    assert number.startswith("SUB-")
+    mine = c.get("/my-recommendations")
+    assert "雨中的折页" in mine.text
+    assert "待审核" in mine.text
+    public = c.get("/search?q=雨中的折页")
+    assert "雨中的折页" not in public.text or "没有符合条件" in public.text
+    gate = c.get("/admin/submissions")
+    assert gate.status_code == 403
+    staff = c.get("/admin/submissions", headers={"x-folio-admin": "test-admin"})
+    assert staff.status_code == 200
+    assert "待审核" in staff.text
+    approve = c.post(
+        f"/api/admin/submissions/{sid}/review",
+        json={"action": "approve", "csrf": csrf, "publicTitle": "雨中的折页", "publicAuthors": "测试作者"},
+        headers={"x-folio-admin": "test-admin"},
+    )
+    assert approve.status_code == 200, approve.text
+    found = c.get("/search?q=雨中的折页")
+    assert found.status_code == 200
+    assert "雨中的折页" in found.text
+    html = found.text.lower()
+    assert "amazon" not in html

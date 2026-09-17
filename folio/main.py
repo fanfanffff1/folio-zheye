@@ -16,12 +16,14 @@ from sqlalchemy.orm import Session
 
 from .config import (
     CONTACT_EMAIL, GENRES, ISSUE_MONTH, ISSUE_TITLE, ISSUE_YEAR, LANGS, MONTH_EN, SITE_NAME,
-    SITE_TAGLINE, STATIC_DIR, TEMPLATE_DIR,
+    SITE_TAGLINE, STATIC_DIR, TEMPLATE_DIR, UPLOAD_DIR,
 )
 from .models import Book, Comment, CommentLike, CommentReport, Issue, Rating, SessionLocal, init_db
 from .security import (
     clean_comment, clean_nick, get_or_set_visitor, html_safe, is_admin, rate_limit, require_csrf,
+    user_role,
 )
+from .submissions import register as register_submissions
 
 app = FastAPI(title=SITE_NAME, docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -35,15 +37,18 @@ async def html_http_exception(request: Request, exc: StarletteHTTPException):
     accept = request.headers.get("accept", "")
     wants_json = "application/json" in accept and "text/html" not in accept
     if (
-        exc.status_code == 404
+        exc.status_code in (403, 404)
         and not request.url.path.startswith("/api/")
         and not wants_json
     ):
+        tpl = "403.html" if exc.status_code == 403 else "404.html"
+        title = "没有权限｜FOLIO 折页" if exc.status_code == 403 else "未找到｜FOLIO 折页"
+        desc = "没有权限访问这个页面。" if exc.status_code == 403 else "没有找到这本书或这个页面。"
         return templates.TemplateResponse(
             request,
-            "404.html",
-            base_ctx(request, title="未找到｜FOLIO 折页", description="没有找到这本书或这个页面。"),
-            status_code=404,
+            tpl,
+            base_ctx(request, title=title, description=desc),
+            status_code=exc.status_code,
         )
     return await http_exception_handler(request, exc)
 
@@ -62,6 +67,10 @@ def nav_current(request: Request) -> str:
         return "search"
     if path.startswith("/archive"):
         return "archive"
+    if path.startswith("/recommend") or path.startswith("/my-recommendations"):
+        return "submit"
+    if path.startswith("/admin"):
+        return "admin"
     if path.startswith("/recommendations") or path.startswith("/books") or path.startswith("/explore"):
         return "issue"
     if path == "/":
@@ -150,6 +159,7 @@ def base_ctx(request: Request, **extra):
         "nav_current": nav_current(request),
         "page_kind": page_kind(request),
         "csrf": getattr(request.state, "csrf", "") or request.cookies.get("folio_csrf") or "",
+        "role": user_role(request) if hasattr(request.state, "visitor_id") else "reader",
     }
     ctx.update(extra)
     return ctx
@@ -172,6 +182,7 @@ def startup():
     init_db()
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     (STATIC_DIR / "covers").mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def featured_books(db: Session, lang: str | None = None, limit: int | None = None):
@@ -799,7 +810,7 @@ def robots():
 @app.get("/sitemap.xml")
 def sitemap(request: Request, db: Session = Depends(get_db)):
     host = str(request.base_url).rstrip("/")
-    urls = ["/", "/recommendations", "/search", "/archive", "/explore"]
+    urls = ["/", "/recommendations", "/search", "/archive", "/explore", "/recommend"]
     for code in LANGS:
         urls.append(f"/recommendations/{code}")
     for b in db.query(Book.slug).all():
@@ -815,3 +826,6 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
 def healthz(db: Session = Depends(get_db)):
     n = db.query(func.count(Book.id)).scalar()
     return {"ok": True, "books": n}
+
+
+register_submissions(app, templates, base_ctx)

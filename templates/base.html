@@ -41,6 +41,7 @@
         <a href="/recommendations" {% if nav_current=="issue" %}aria-current="page"{% endif %}>本期新书推荐</a>
         <a href="/archive" {% if nav_current=="archive" %}aria-current="page"{% endif %}>往期推荐</a>
         <a href="/search" {% if nav_current=="search" %}aria-current="page"{% endif %}>书籍检索</a>
+        <a href="/recommend" {% if nav_current=="submit" %}aria-current="page"{% endif %}>推荐一本书</a>
         <form class="header-search nav-search" action="/search" method="get" role="search">
           <label class="sr-only" for="nav-q-mobile">搜索书名、作者或关键词</label>
           <input id="nav-q-mobile" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" />
@@ -74,6 +75,7 @@
         <a href="/recommendations">本期新书推荐</a>
         <a href="/archive">往期推荐</a>
         <a href="/search">书籍检索</a>
+        <a href="/recommend">推荐一本书</a>
       </p>
       <p>一起读书，一起交流。如果有什么想交流的，请联系：{{ email }}</p>
       <p>本站仅用于图书介绍与阅读交流，不提供购买服务。</p>

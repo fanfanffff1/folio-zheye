@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine,
 )
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from .config import DB_PATH
@@ -129,13 +130,84 @@ class CommentReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class BookSubmission(Base):
+    __tablename__ = "book_submissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    submission_number: Mapped[str] = mapped_column(String(32), unique=True, index=True, default="")
+    visitor_id: Mapped[str] = mapped_column(String(64), index=True)
+    nickname: Mapped[str] = mapped_column(String(40), default="")
+    contact_email: Mapped[str] = mapped_column(String(200), default="")
+    title: Mapped[str] = mapped_column(String(160), default="")
+    original_title: Mapped[str] = mapped_column(String(400), default="")
+    chinese_title: Mapped[str] = mapped_column(String(400), default="")
+    chinese_title_is_temporary: Mapped[bool] = mapped_column(Boolean, default=False)
+    authors: Mapped[str] = mapped_column(String(300), default="")
+    cover_url: Mapped[str] = mapped_column(String(400), default="")
+    introduction: Mapped[str] = mapped_column(Text, default="")
+    recommendation_reason: Mapped[str] = mapped_column(Text, default="")
+    suitable_readers: Mapped[str] = mapped_column(Text, default="")
+    author_biography: Mapped[str] = mapped_column(Text, default="")
+    publication_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    publication_date: Mapped[str] = mapped_column(String(20), default="")
+    publisher: Mapped[str] = mapped_column(String(200), default="")
+    isbn: Mapped[str] = mapped_column(String(32), default="", index=True)
+    language_code: Mapped[str] = mapped_column(String(16), default="")
+    language_other: Mapped[str] = mapped_column(String(80), default="")
+    region: Mapped[str] = mapped_column(String(80), default="")
+    genres: Mapped[str] = mapped_column(String(400), default="")
+    tags: Mapped[str] = mapped_column(String(240), default="")
+    information_source: Mapped[str] = mapped_column(String(80), default="")
+    information_source_note: Mapped[str] = mapped_column(String(400), default="")
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    assigned_editor: Mapped[str] = mapped_column(String(80), default="")
+    public_feedback: Mapped[str] = mapped_column(Text, default="")
+    internal_notes: Mapped[str] = mapped_column(Text, default="")
+    checklist: Mapped[str] = mapped_column(Text, default="")
+    duplicate_flag: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    completeness: Mapped[int] = mapped_column(Integer, default=0)
+    approved_book_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    candidate_pool: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class SubmissionAuditLog(Base):
+    __tablename__ = "submission_audit_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("book_submissions.id"), index=True)
+    operator_id: Mapped[str] = mapped_column(String(80), default="")
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    previous_status: Mapped[str] = mapped_column(String(24), default="")
+    next_status: Mapped[str] = mapped_column(String(24), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SiteNotice(Base):
+    __tablename__ = "site_notices"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    visitor_id: Mapped[str] = mapped_column(String(64), index=True)
+    submission_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(40), default="info")
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except OperationalError as exc:
+        if "already exists" not in str(exc):
+            raise
 
 
 Index("ix_books_search", Book.original_title, Book.chinese_title, Book.isbn13)

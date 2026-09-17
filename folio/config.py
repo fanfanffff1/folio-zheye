@@ -17,10 +17,17 @@ ISSUE_TITLE = "二〇二六年九月号"
 CONTACT_EMAIL = "1797098277@qq.com"
 SECRET_KEY = os.environ.get("FOLIO_SECRET_KEY", "dev-change-me-in-production")
 ADMIN_KEY = os.environ.get("FOLIO_ADMIN_KEY", "dev-admin-change-me")
+EDITOR_KEY = os.environ.get("FOLIO_EDITOR_KEY", "")
 COOKIE_NAME = "folio_vid"
 CSRF_COOKIE = "folio_csrf"
+ADMIN_COOKIE = "folio_admin"
+EDITOR_COOKIE = "folio_editor"
 RATE_WINDOW_SEC = 60
 RATE_LIMIT_POST = 8
+SUBMIT_HOUR_LIMIT = 3
+SUBMIT_DAY_LIMIT = 10
+UPLOAD_DIR = STATIC_DIR / "uploads" / "submissions"
+COVER_MAX_BYTES = 10 * 1024 * 1024
 COMMENT_MIN = 2
 COMMENT_MAX = 2000
 NICK_MIN = 1
@@ -86,4 +93,36 @@ MONTH_EN = {
 GENRES = [
     "悬疑", "推理", "惊悚", "科幻", "奇幻", "爱情", "历史",
     "家庭", "成长", "社会议题", "文学小说", "非虚构", "传记", "随笔", "青少年", "其他",
+]
+
+SUBMIT_LANGS = [
+    ("en", "英语"),
+    ("fr", "法语"),
+    ("es", "西班牙语"),
+    ("ja", "日语"),
+    ("ko", "韩语"),
+    ("de", "德语"),
+    ("zh", "中文"),
+    ("it", "意大利语"),
+    ("pt", "葡萄牙语"),
+    ("other", "其他"),
+]
+
+SUBMIT_GENRES = [
+    "文学", "悬疑", "推理", "科幻", "奇幻", "爱情", "家庭", "历史",
+    "社会议题", "女性题材", "非虚构", "传记", "随笔", "诗歌",
+    "儿童文学", "青少年文学", "其他",
+]
+
+INFO_SOURCES = [
+    "书籍版权页",
+    "出版社公开信息",
+    "图书馆目录",
+    "作者公开资料",
+    "其他",
+]
+
+REGIONS = [
+    "中国", "日本", "韩国", "美国", "英国", "法国", "西班牙", "意大利",
+    "德国", "葡萄牙", "加拿大", "澳大利亚", "其他",
 ]

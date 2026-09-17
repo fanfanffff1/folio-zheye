@@ -79,6 +79,19 @@ python3 -m folio.seed
 
 `POST /api/admin/comments/{id}/moderate`  JSON `{"action":"hide"|"restore"|"delete"}`
 
+## 读者投稿「推荐一本书」
+
+- 读者页：`/recommend`、`/my-recommendations`
+- 编辑登录：`/admin/login`（填写 `FOLIO_ADMIN_KEY` 或可选的 `FOLIO_EDITOR_KEY`）
+- 审核列表：`/admin/submissions`
+- 投稿不会自动进入本期首页重点推荐；审核通过后只进入普通书籍库，勾选「推荐候选池」才会标为可被编辑选用。
+
+本地把管理员密钥放进请求头即可调用审核 API：
+
+```bash
+curl -H "x-folio-admin: $FOLIO_ADMIN_KEY" http://127.0.0.1:8000/admin/submissions
+```
+
 ## 重要路径
 
 - `folio/main.py` 网站与 API

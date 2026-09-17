@@ -6,4 +6,5 @@ data/reports/enrich-cache.json
 .venv/
 .env
 .DS_Store
-.pytest_cache/
+static/uploads/submissions/*
+!static/uploads/submissions/.gitkeep
