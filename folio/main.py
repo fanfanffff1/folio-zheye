@@ -11,18 +11,24 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from .config import (
     CONTACT_EMAIL, GENRES, ISSUE_MONTH, ISSUE_TITLE, ISSUE_YEAR, LANGS, MONTH_EN, SITE_NAME,
     SITE_TAGLINE, STATIC_DIR, TEMPLATE_DIR, UPLOAD_DIR,
 )
-from .models import Book, Comment, CommentLike, CommentReport, Issue, Rating, SessionLocal, init_db
-from .security import (
-    clean_comment, clean_nick, get_or_set_visitor, html_safe, is_admin, rate_limit, require_csrf,
-    user_role,
+from .auth import attach_auth, bootstrap_admin, current_user, decorate_people, get_or_create_guest, profile_from_user, profiles_for, promote_owner_admin, public_profile
+from .moderation import auto_review, publish_clean_pending
+from .models import (
+    Book, BookSubmission, Comment, CommentLike, CommentReport, Issue, Notification, Rating,
+    SessionLocal, init_db,
 )
+from .security import (
+    clean_comment, get_or_set_visitor, html_safe, rate_limit, require_csrf,
+    require_staff, user_role,
+)
+from .accounts import register as register_accounts
 from .submissions import register as register_submissions
 
 app = FastAPI(title=SITE_NAME, docs_url=None, redoc_url=None)
@@ -63,13 +69,15 @@ def get_db():
 
 def nav_current(request: Request) -> str:
     path = request.url.path
+    if path.startswith("/account") or path.startswith("/login") or path.startswith("/register"):
+        return "account"
     if path.startswith("/search"):
         return "search"
     if path.startswith("/archive"):
         return "archive"
     if path.startswith("/recommend") or path.startswith("/my-recommendations"):
         return "submit"
-    if path.startswith("/admin"):
+    if path.startswith("/admin") or path.startswith("/studio") or path.startswith("/editor"):
         return "admin"
     if path.startswith("/recommendations") or path.startswith("/books") or path.startswith("/explore"):
         return "issue"
@@ -84,6 +92,10 @@ def page_kind(request: Request) -> str:
         return "home"
     if path.startswith("/books/"):
         return "book"
+    if path.startswith("/login") or path.startswith("/register") or path.startswith("/forgot") or path.startswith("/editor/login") or path.startswith("/editor/apply"):
+        return "auth"
+    if path.startswith("/account"):
+        return "account"
     return "inner"
 
 
@@ -159,7 +171,12 @@ def base_ctx(request: Request, **extra):
         "nav_current": nav_current(request),
         "page_kind": page_kind(request),
         "csrf": getattr(request.state, "csrf", "") or request.cookies.get("folio_csrf") or "",
-        "role": user_role(request) if hasattr(request.state, "visitor_id") else "reader",
+        "role": user_role(request),
+        "current_user": getattr(request.state, "user", None),
+        "guest_name": getattr(getattr(request.state, "guest", None), "display_name", "") or "",
+        "favorite_ids": getattr(request.state, "favorite_ids", set()) or set(),
+        "favorite_counts": getattr(request.state, "favorite_counts", {}) or {},
+        "login_next": str(request.url.path) + (("?" + request.url.query) if request.url.query else ""),
     }
     ctx.update(extra)
     return ctx
@@ -170,6 +187,7 @@ async def visitor_mw(request: Request, call_next):
     dummy = Response()
     vid = get_or_set_visitor(request, dummy)
     request.state.visitor_id = vid
+    attach_auth(request, dummy)
     response = await call_next(request)
     for header, value in dummy.raw_headers:
         if header.lower() == b"set-cookie":
@@ -180,6 +198,13 @@ async def visitor_mw(request: Request, call_next):
 @app.on_event("startup")
 def startup():
     init_db()
+    bootstrap_admin()
+    promote_owner_admin()
+    db = SessionLocal()
+    try:
+        publish_clean_pending(db)
+    finally:
+        db.close()
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     (STATIC_DIR / "covers").mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -239,6 +264,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         book = db.query(Book).filter(Book.id == c.book_id).one_or_none()
         if book:
             recent_view.append({"comment": c, "book": book})
+    decorate_people(db, [item["comment"] for item in recent_view])
     top_rated = []
     rated = db.query(Rating.book_id, func.avg(Rating.score), func.count(Rating.id)).group_by(Rating.book_id).having(func.count(Rating.id) >= 1).all()
     rated_sorted = sorted(rated, key=lambda x: (-x[1], -x[2]))[:6]
@@ -303,6 +329,18 @@ def recommendations(lang: str, request: Request, db: Session = Depends(get_db)):
     )
 
 
+def _book_recommender(db: Session, book: Book) -> Optional[dict]:
+    row = (
+        db.query(BookSubmission)
+        .filter(BookSubmission.approved_book_id == book.id)
+        .order_by(BookSubmission.id.desc())
+        .first()
+    )
+    if not row:
+        return None
+    return public_profile(db, user_id=row.user_id, nickname=row.nickname)
+
+
 @app.get("/books/{slug}")
 def book_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     book = db.query(Book).filter(Book.slug == slug).one_or_none()
@@ -357,8 +395,10 @@ def book_detail(slug: str, request: Request, db: Session = Depends(get_db)):
             ),
             csrf=getattr(request.state, "csrf", "") or request.cookies.get("folio_csrf") or "",
             visitor_id=request.state.visitor_id,
+            favorited=book.id in (getattr(request.state, "favorite_ids", set()) or set()),
             og_image=og_image,
             og_type="book",
+            recommender=_book_recommender(db, book),
         ),
     )
 
@@ -529,7 +569,7 @@ class RatingIn(BaseModel):
 
 
 class CommentIn(BaseModel):
-    nickname: str
+    nickname: str = ""
     content: str
     parent_id: Optional[int] = None
     spoiler: bool = False
@@ -576,9 +616,18 @@ def api_comments(
         raise HTTPException(404)
     limit = max(1, min(limit, 50))
     offset = max(0, offset)
+    vid = request.state.visitor_id
+    user = current_user(request)
+    own = [Comment.visitor_id == vid]
+    if user:
+        own.append(Comment.user_id == user.id)
+    visible = or_(
+        Comment.status.in_(["published", "approved"]),
+        and_(Comment.status == "pending", or_(*own)),
+    )
     q = db.query(Comment).filter(
         Comment.book_id == book.id, Comment.parent_id.is_(None),
-        Comment.status == "published", Comment.deleted_at.is_(None),
+        Comment.deleted_at.is_(None), visible,
     )
     if sort == "oldest":
         q = q.order_by(Comment.created_at.asc())
@@ -588,46 +637,61 @@ def api_comments(
         q = q.order_by(Comment.created_at.desc())
     total = q.count()
     roots = q.offset(offset).limit(limit).all()
-    vid = request.state.visitor_id
     liked = {
         x.comment_id for x in db.query(CommentLike).filter(CommentLike.visitor_id == vid).all()
     }
+    reply_rows = []
+    for c in roots:
+        reply_rows.extend(
+            db.query(Comment)
+            .filter(Comment.parent_id == c.id, Comment.deleted_at.is_(None), visible)
+            .order_by(Comment.created_at.asc())
+            .all()
+        )
+    users = profiles_for(db, [c.user_id for c in roots] + [r.user_id for r in reply_rows])
 
     def unpack(text: str):
         spoiler = (text or "").startswith("[剧透]")
         body = (text or "")[3:].lstrip() if spoiler else (text or "")
         return spoiler, body
 
-    def pack(c: Comment):
+    def person(c: Comment):
+        if c.user_id and users.get(c.user_id):
+            return profile_from_user(users[c.user_id], c.nickname)
+        return public_profile(db, user_id=c.user_id, guest_id=c.guest_identity_id, nickname=c.nickname)
+
+    def pack(c: Comment, replies=None):
         spoiler, body = unpack(c.content)
-        replies = (
-            db.query(Comment)
-            .filter(Comment.parent_id == c.id, Comment.status == "published", Comment.deleted_at.is_(None))
-            .order_by(Comment.created_at.asc())
-            .all()
-        )
+        if replies is None:
+            replies = [r for r in reply_rows if r.parent_id == c.id]
         packed_replies = []
         for r in replies:
             rs, rb = unpack(r.content)
+            rp = person(r)
             packed_replies.append({
                 "id": r.id,
-                "nickname": r.nickname,
+                "nickname": rp["nickname"],
+                "avatarUrl": rp["avatarUrl"],
                 "content": rb,
                 "containsSpoiler": rs,
                 "createdAt": r.created_at.isoformat(),
                 "likeCount": r.like_count,
                 "liked": r.id in liked,
-                "mine": r.visitor_id == vid,
+                "mine": r.visitor_id == vid or (user and r.user_id == user.id),
+                "status": r.status,
             })
+        p = person(c)
         return {
             "id": c.id,
-            "nickname": c.nickname,
+            "nickname": p["nickname"],
+            "avatarUrl": p["avatarUrl"],
             "content": body,
             "containsSpoiler": spoiler,
             "createdAt": c.created_at.isoformat(),
             "likeCount": c.like_count,
             "liked": c.id in liked,
-            "mine": c.visitor_id == vid,
+            "mine": c.visitor_id == vid or (user and c.user_id == user.id),
+            "status": c.status,
             "replies": packed_replies,
         }
 
@@ -641,7 +705,11 @@ def api_comment(slug: str, payload: CommentIn, request: Request, db: Session = D
     book = db.query(Book).filter(Book.slug == slug).one_or_none()
     if not book:
         raise HTTPException(404)
-    nick = clean_nick(payload.nickname)
+    user = current_user(request)
+    dummy = Response()
+    guest = None if user else get_or_create_guest(db, request, dummy)
+    nick = user.nickname if user else guest.display_name
+    avatar = user.avatar_url if user else ""
     content = clean_comment(payload.content)
     if payload.spoiler and not content.startswith("[剧透]"):
         content = "[剧透] " + content
@@ -650,19 +718,44 @@ def api_comment(slug: str, payload: CommentIn, request: Request, db: Session = D
         parent = db.query(Comment).filter(Comment.id == payload.parent_id, Comment.book_id == book.id).one_or_none()
         if not parent or parent.parent_id is not None:
             raise HTTPException(400, "只能回复一层评论。")
-        if parent.status != "published" or parent.deleted_at:
+        if parent.status not in ("published", "approved") or parent.deleted_at:
             raise HTTPException(400, "原评论不可回复。")
+    verdict = auto_review(content)
     row = Comment(
         book_id=book.id,
         visitor_id=request.state.visitor_id,
+        user_id=user.id if user else None,
+        guest_identity_id=None if user else guest.id,
         nickname=nick,
         content=content,
         parent_id=parent.id if parent else None,
-        status="published",
+        status=verdict["status"],
     )
     db.add(row)
+    if parent and parent.user_id and (not user or parent.user_id != user.id) and verdict["status"] == "published":
+        db.add(Notification(
+            user_id=parent.user_id,
+            type="reply",
+            actor_name=nick,
+            book_id=book.id,
+            comment_id=row.id,
+            title="有人回复了你",
+            message=content[:200],
+        ))
     db.commit()
-    return {"ok": True, "id": row.id}
+    payload_out = {
+        "ok": True,
+        "id": row.id,
+        "status": row.status,
+        "nickname": nick,
+        "avatarUrl": avatar,
+        "message": verdict["message"],
+    }
+    resp = JSONResponse(payload_out)
+    for header, value in dummy.raw_headers:
+        if header.lower() == b"set-cookie":
+            resp.raw_headers.append((header, value))
+    return resp
 
 
 @app.post("/api/comments/{cid}/like")
@@ -704,7 +797,9 @@ async def api_delete(cid: int, request: Request, db: Session = Depends(get_db)):
     comment = db.query(Comment).filter(Comment.id == cid).one_or_none()
     if not comment:
         raise HTTPException(404)
-    if comment.visitor_id != request.state.visitor_id and not is_admin(request):
+    user = current_user(request)
+    own = comment.visitor_id == request.state.visitor_id or (user and comment.user_id == user.id)
+    if not own and user_role(request) not in ("admin", "editor"):
         raise HTTPException(403, "不能删除他人评论。")
     comment.deleted_at = datetime.utcnow()
     comment.status = "deleted"
@@ -719,12 +814,16 @@ async def api_edit(cid: int, request: Request, db: Session = Depends(get_db)):
     comment = db.query(Comment).filter(Comment.id == cid, Comment.deleted_at.is_(None)).one_or_none()
     if not comment:
         raise HTTPException(404)
-    if comment.visitor_id != request.state.visitor_id:
+    user = current_user(request)
+    own = comment.visitor_id == request.state.visitor_id or (user and comment.user_id == user.id)
+    if not own:
         raise HTTPException(403, "不能编辑他人评论。")
     comment.content = clean_comment(body.get("content") or "")
+    verdict = auto_review(comment.content)
+    comment.status = verdict["status"]
     comment.updated_at = datetime.utcnow()
     db.commit()
-    return {"ok": True, "content": comment.content}
+    return {"ok": True, "content": comment.content, "status": comment.status, "message": verdict["message"]}
 
 
 @app.post("/api/comments/{cid}/report")
@@ -747,14 +846,16 @@ async def api_report(cid: int, request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/admin/comments/{cid}/moderate")
 async def api_moderate(cid: int, request: Request, db: Session = Depends(get_db)):
-    if not is_admin(request):
-        raise HTTPException(403)
+    require_staff(request)
     body = await request.json()
     comment = db.query(Comment).filter(Comment.id == cid).one_or_none()
     if not comment:
         raise HTTPException(404)
     action = body.get("action")
-    if action == "hide":
+    if action == "approve":
+        comment.status = "published"
+        comment.deleted_at = None
+    elif action == "hide":
         comment.status = "hidden"
     elif action == "restore":
         comment.status = "published"
@@ -829,3 +930,4 @@ def healthz(db: Session = Depends(get_db)):
 
 
 register_submissions(app, templates, base_ctx)
+register_accounts(app, templates, base_ctx)

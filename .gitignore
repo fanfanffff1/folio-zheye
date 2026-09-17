@@ -4,7 +4,9 @@ data/folio.db
 data/test.db
 data/reports/enrich-cache.json
 .venv/
-.env
+data/owner-password.txt
 .DS_Store
 static/uploads/submissions/*
 !static/uploads/submissions/.gitkeep
+static/uploads/avatars/*
+!static/uploads/avatars/.gitkeep

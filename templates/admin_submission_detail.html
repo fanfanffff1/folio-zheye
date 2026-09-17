@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_person.html" import person_chip %}
 {% block content %}
 <section class="review-page">
   <p><a href="/admin/submissions">← 返回列表</a> · {{ packed.submissionNumber }}</p>
@@ -14,7 +15,8 @@
       {% if packed.recommendationReason %}<h2>推荐理由</h2><p class="prose">{{ packed.recommendationReason }}</p>{% endif %}
       {% if packed.suitableReaders %}<h2>适合人群</h2><p>{{ packed.suitableReaders }}</p>{% endif %}
       {% if packed.authorBiography %}<h2>作者介绍</h2><p>{{ packed.authorBiography }}</p>{% endif %}
-      <p>投稿人：{{ packed.nickname or "匿名读者" }} · {{ packed.submittedAt[:16].replace("T"," ") }}</p>
+      {{ person_chip(packed.nickname or "登录用户", packed.avatarUrl, "推荐人") }}
+      <p>{% if packed.contactEmail %}{{ packed.contactEmail }} · {% endif %}{{ packed.submittedAt[:16].replace("T"," ") if packed.submittedAt else "" }}</p>
       <h2>修改历史</h2>
       <ol>
         {% for log in logs %}
@@ -51,8 +53,16 @@
           <button type="button" data-act="start">开始审核</button>
           <button type="button" data-act="save_notes">保存内部备注</button>
           <button type="button" data-act="changes">要求补充</button>
-          <button type="button" data-act="approve">审核通过</button>
-          <button type="button" data-act="reject">不予通过</button>
+          {% if role == "editor" %}
+          <button type="button" data-act="suggest_approve">建议通过</button>
+          <button type="button" data-act="suggest_reject">建议拒绝</button>
+          {% endif %}
+          {% if role == "admin" %}
+          <button type="button" data-act="claim">分配给我</button>
+          <button type="button" data-act="reassign">保存分配</button>
+          <button type="button" data-act="approve">最终通过</button>
+          <button type="button" data-act="reject">最终拒绝</button>
+          {% endif %}
         </p>
         <p class="status" id="review-status"></p>
       </form>

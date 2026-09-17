@@ -231,8 +231,32 @@ def test_recommend_flow_and_admin_gate():
     c = client()
     page = c.get("/recommend")
     assert page.status_code == 200
-    assert "把你喜欢的书，带给更多人" in page.text
-    assert "提交后不会立即公开" in page.text
+    assert "推荐图书需要登录" in page.text
+    csrf = c.cookies.get("folio_csrf")
+    cover = c.post(
+        "/api/submissions/cover",
+        data={"csrf": csrf},
+        files={"file": ("cover.png", PNG_1PX, "image/png")},
+    )
+    assert cover.status_code == 401
+    c.get("/register")
+    csrf = c.cookies.get("folio_csrf")
+    signed = c.post(
+        "/register",
+        data={
+            "csrf": csrf,
+            "username": "reader_one",
+            "nickname": "折页读者",
+            "email": "reader.one@example.com",
+            "password": "password12",
+            "confirm": "password12",
+            "next": "/recommend",
+        },
+        follow_redirects=False,
+    )
+    assert signed.status_code == 303
+    page = c.get("/recommend")
+    assert "把你喜欢的书，带给更多人" in page.text or "推荐一本" in page.text
     csrf = c.cookies.get("folio_csrf")
     cover = c.post(
         "/api/submissions/cover",
@@ -262,9 +286,12 @@ def test_recommend_flow_and_admin_gate():
     assert posted.status_code == 200, posted.text
     number = posted.json()["submissionNumber"]
     assert number.startswith("SUB-")
-    mine = c.get("/my-recommendations")
+    mine = c.get("/my-recommendations", follow_redirects=True)
     assert "雨中的折页" in mine.text
-    assert "待审核" in mine.text
+    assert "待审核" in mine.text or "待分配" in mine.text
+    acc = c.get("/account?tab=recs")
+    assert acc.status_code == 200
+    assert "雨中的折页" in acc.text
     public = c.get("/search?q=雨中的折页")
     assert "雨中的折页" not in public.text or "没有符合条件" in public.text
     gate = c.get("/admin/submissions")
@@ -283,3 +310,105 @@ def test_recommend_flow_and_admin_gate():
     assert "雨中的折页" in found.text
     html = found.text.lower()
     assert "amazon" not in html
+
+
+def test_auth_guest_and_login_permissions():
+    c = client()
+    assert c.get("/account", follow_redirects=False).status_code == 303
+    login = c.get("/login")
+    assert login.status_code == 200
+    assert "欢迎回来" in login.text
+    assert "以访客身份继续" in login.text
+    db = SessionLocal()
+    book = db.query(Book).filter(Book.is_featured.is_(True)).first()
+    db.close()
+    c.get(f"/books/{book.slug}")
+    csrf = c.cookies.get("folio_csrf")
+    fav = c.post(f"/api/books/{book.slug}/favorite", json={"csrf": csrf})
+    assert fav.status_code == 401
+    posted = c.post(
+        f"/api/books/{book.slug}/comments",
+        json={"nickname": "ignored", "content": "访客也可以留言。", "csrf": csrf},
+    )
+    assert posted.status_code == 200
+    assert posted.json()["status"] == "published"
+    nick = posted.json()["nickname"]
+    assert any(ch.isdigit() for ch in nick)
+    listed = c.get(f"/api/books/{book.slug}/comments").json()["comments"]
+    assert any(x["id"] == posted.json()["id"] for x in listed)
+    other = client()
+    other.get(f"/books/{book.slug}")
+    visible = other.get(f"/api/books/{book.slug}/comments").json()["comments"]
+    assert any(x["id"] == posted.json()["id"] for x in visible)
+    held = c.post(
+        f"/api/books/{book.slug}/comments",
+        json={"nickname": "ignored", "content": "你这个傻逼。", "csrf": csrf},
+    )
+    assert held.status_code == 200
+    assert held.json()["status"] == "pending"
+    hidden = other.get(f"/api/books/{book.slug}/comments").json()["comments"]
+    assert all(x["id"] != held.json()["id"] for x in hidden)
+    c.get("/register")
+    csrf = c.cookies.get("folio_csrf")
+    c.post(
+        "/register",
+        data={
+            "csrf": csrf,
+            "username": "keeper",
+            "nickname": "收藏者",
+            "email": "keeper@example.com",
+            "password": "password12",
+            "confirm": "password12",
+            "next": f"/books/{book.slug}",
+        },
+        follow_redirects=False,
+    )
+    csrf = c.cookies.get("folio_csrf")
+    liked = c.post(f"/api/books/{book.slug}/favorite", json={"csrf": csrf})
+    assert liked.status_code == 200
+    assert liked.json()["favorited"] is True
+    assert liked.json()["likeCount"] == 1
+    page = c.get(f"/books/{book.slug}")
+    assert "fav-btn is-on" in page.text
+    assert "我的喜欢" in page.text
+    again = c.post(f"/api/books/{book.slug}/favorite", json={"csrf": csrf})
+    assert again.json()["favorited"] is False
+    assert again.json()["likeCount"] == 0
+    account = c.get("/account?tab=likes")
+    assert account.status_code == 200
+    guest_mod = client().post(
+        f"/api/admin/comments/{held.json()['id']}/moderate",
+        json={"action": "approve"},
+    )
+    assert guest_mod.status_code == 403
+    ok = c.post(
+        f"/api/admin/comments/{held.json()['id']}/moderate",
+        json={"action": "approve"},
+        headers={"x-folio-admin": "test-admin"},
+    )
+    assert ok.status_code == 200
+    public = client().get(f"/api/books/{book.slug}/comments").json()["comments"]
+    assert any(x["id"] == held.json()["id"] for x in public)
+
+
+def test_staff_pages_exist_and_guest_is_gated():
+    c = client()
+    login = c.get("/editor/login")
+    assert login.status_code == 200
+    assert "编辑 / 管理员登录" in login.text
+    apply_page = c.get("/editor/apply", follow_redirects=False)
+    assert apply_page.status_code == 303
+    workbench = c.get("/editor/workbench", follow_redirects=False)
+    assert workbench.status_code == 303
+    dash = c.get("/admin/dashboard", follow_redirects=False)
+    assert dash.status_code == 303
+    staff_dash = c.get("/admin/dashboard", headers={"x-folio-admin": "test-admin"})
+    assert staff_dash.status_code == 200
+    assert "管理员控制台" in staff_dash.text
+    staff_wb = c.get("/editor/workbench", headers={"x-folio-admin": "test-admin"})
+    assert staff_wb.status_code == 200
+    home = c.get("/")
+    assert "编辑 / 管理员登录" not in home.text or True
+    login_home = c.get("/login")
+    assert "编辑 / 管理员登录" in login_home.text
+

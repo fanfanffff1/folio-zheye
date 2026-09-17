@@ -73,11 +73,28 @@ python3 -m folio.seed
 
 不要虚构往期。没有内容时，「往期推荐」会显示空状态。
 
-## 管理员评论审核
+## 读者账号
 
-请求头 `x-folio-admin: $FOLIO_ADMIN_KEY`，调用：
+- 登录 `/login`，注册 `/register`，个人中心 `/account`
+- 访客可浏览、检索、评论（随机昵称）；普通评论自动通过，辱骂或敏感用语才进入人工复核。登录后可收藏、投稿。
+- 登录用户可收藏、投稿、查看审核状态
+- 密码使用 Argon2（若已安装 `argon2-cffi`）或 PBKDF2 哈希；登录态写在 HttpOnly Cookie `folio_sid`
+- 生产环境请走 HTTPS，Cookie 会自动带 `Secure`
 
-`POST /api/admin/comments/{id}/moderate`  JSON `{"action":"hide"|"restore"|"delete"}`
+创建管理员账号（启动时若邮箱尚未注册会自动写入）：
+
+```bash
+export FOLIO_ADMIN_EMAIL='you@example.com'
+export FOLIO_ADMIN_PASSWORD='长密码'
+export FOLIO_ADMIN_USERNAME='admin'
+```
+
+也可用原有审核密钥：请求头 `x-folio-admin: $FOLIO_ADMIN_KEY`，或打开 `/admin/login`。
+
+评论审核页：`/admin/comments`
+
+`POST /api/admin/comments/{id}/moderate`  JSON `{"action":"approve"|"hide"|"restore"|"delete"}`
+
 
 ## 读者投稿「推荐一本书」
 

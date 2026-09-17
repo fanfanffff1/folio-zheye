@@ -19,16 +19,21 @@ from .config import (
     ADMIN_COOKIE, ADMIN_KEY, COVER_MAX_BYTES, EDITOR_COOKIE, EDITOR_KEY, GENRES,
     INFO_SOURCES, REGIONS, STATIC_DIR, SUBMIT_GENRES, SUBMIT_LANGS, UPLOAD_DIR,
 )
-from .models import Author, Book, BookSubmission, SessionLocal, SiteNotice, SubmissionAuditLog
+from .assign import assign_submission, close_editor_task
+from .auth import current_user, login_url, public_profile, require_user, decorate_people
+from .models import Author, Book, BookSubmission, SessionLocal, SiteNotice, SubmissionAuditLog, User
 from .security import (
     html_safe, is_admin, require_csrf, require_staff, submit_rate_ok, user_role,
 )
 
 STATUS_LABELS = {
     "draft": "草稿",
+    "unassigned": "待分配",
     "pending": "待审核",
     "reviewing": "审核中",
     "needs_changes": "需补充",
+    "editor_approve": "编辑建议通过",
+    "editor_reject": "编辑建议拒绝",
     "approved": "已通过",
     "rejected": "未通过",
     "withdrawn": "已撤回",
@@ -125,9 +130,10 @@ def add_log(db: Session, row: BookSubmission, operator: str, action: str, nxt: s
     ))
 
 
-def notify(db: Session, visitor_id: str, submission_id: int, title: str, body: str, kind: str = "info"):
+def notify(db: Session, visitor_id: str, submission_id: int, title: str, body: str, kind: str = "info", user_id: Optional[int] = None):
     db.add(SiteNotice(
         visitor_id=visitor_id,
+        user_id=user_id,
         submission_id=submission_id,
         title=title,
         body=body,
@@ -153,10 +159,16 @@ def next_number(db: Session) -> str:
     return f"{prefix}{n:06d}"
 
 
-def own_or_404(db: Session, sid: int, visitor_id: str) -> BookSubmission:
+def own_or_404(db: Session, sid: int, request: Request) -> BookSubmission:
     row = db.query(BookSubmission).filter(BookSubmission.id == sid).one_or_none()
-    if not row or row.visitor_id != visitor_id:
+    user = current_user(request)
+    if not row:
         raise HTTPException(404, "没有找到这份投稿。")
+    if user and row.user_id == user.id:
+        return row
+    if not user:
+        raise HTTPException(401, "请先登录。")
+    raise HTTPException(404, "没有找到这份投稿。")
     return row
 
 
@@ -193,7 +205,7 @@ def find_duplicates(db: Session, title: str, isbn: str, authors: str):
     return unique[:6]
 
 
-def pack(row: BookSubmission, include_private: bool = False) -> dict:
+def pack(row: BookSubmission, include_private: bool = False, db: Optional[Session] = None) -> dict:
     data = {
         "id": row.id,
         "submissionNumber": row.submission_number,
@@ -225,6 +237,7 @@ def pack(row: BookSubmission, include_private: bool = False) -> dict:
         "completeness": row.completeness,
         "duplicateFlag": row.duplicate_flag,
         "nickname": row.nickname,
+        "avatarUrl": "",
         "createdAt": row.created_at.isoformat() if row.created_at else "",
         "updatedAt": row.updated_at.isoformat() if row.updated_at else "",
         "submittedAt": row.submitted_at.isoformat() if row.submitted_at else "",
@@ -237,6 +250,10 @@ def pack(row: BookSubmission, include_private: bool = False) -> dict:
         data["assignedEditor"] = row.assigned_editor
         data["checklist"] = json.loads(row.checklist or "{}")
         data["candidatePool"] = row.candidate_pool
+    if db is not None:
+        prof = public_profile(db, user_id=row.user_id, nickname=row.nickname)
+        data["nickname"] = prof["nickname"]
+        data["avatarUrl"] = prof["avatarUrl"]
     return data
 
 
@@ -302,11 +319,6 @@ def apply_payload(row: BookSubmission, payload: dict, *, draft: bool) -> None:
     src = strip_text(payload.get("informationSource") or "", 80)
     row.information_source = src if src in INFO_SOURCES else ""
     row.information_source_note = strip_text(payload.get("informationSourceNote") or "", 400)
-    row.nickname = strip_text(payload.get("nickname") or "", 24)
-    email = strip_text(payload.get("contactEmail") or "", 200)
-    if email and "@" not in email and not draft:
-        raise HTTPException(400, "请填写有效的联系邮箱，或留空。")
-    row.contact_email = email
     row.completeness = completeness_of(row)
     row.updated_at = datetime.utcnow()
 
@@ -321,9 +333,15 @@ def sniff_image(data: bytes) -> str:
     raise HTTPException(400, "仅支持 JPG、PNG 或 WebP 封面。")
 
 
-def counts_for(db: Session, visitor_id: str) -> dict:
+def stamp_submitter(row: BookSubmission, user) -> None:
+    row.user_id = user.id
+    row.nickname = (user.nickname or user.username or "")[:40]
+    row.contact_email = (user.email or "")[:200]
+
+
+def counts_for(db: Session, user_id: int) -> dict:
     rows = db.query(BookSubmission.status, func.count(BookSubmission.id)).filter(
-        BookSubmission.visitor_id == visitor_id
+        BookSubmission.user_id == user_id
     ).group_by(BookSubmission.status).all()
     data = {k: 0 for k in STATUS_LABELS}
     for status, n in rows:
@@ -379,20 +397,33 @@ class ReviewIn(BaseModel):
 def register(app, templates, base_ctx):
     @app.get("/recommend")
     def recommend_page(request: Request, id: Optional[int] = None, db: Session = Depends(get_db)):
+        user = current_user(request)
+        if not user:
+            return templates.TemplateResponse(
+                request,
+                "login_needed.html",
+                base_ctx(
+                    request,
+                    title="登录后推荐图书｜FOLIO 折页",
+                    description="推荐图书需要登录。",
+                    next_url="/recommend",
+                    reason="recommend",
+                ),
+            )
         vid = request.state.visitor_id
         row = None
         if id:
-            row = own_or_404(db, id, vid)
+            row = own_or_404(db, id, request)
         else:
             row = (
                 db.query(BookSubmission)
-                .filter(BookSubmission.visitor_id == vid, BookSubmission.status.in_(["draft", "needs_changes"]))
+                .filter(BookSubmission.user_id == user.id, BookSubmission.status.in_(["draft", "needs_changes"]))
                 .order_by(BookSubmission.updated_at.desc())
                 .first()
             )
         notices = (
             db.query(SiteNotice)
-            .filter(SiteNotice.visitor_id == vid, SiteNotice.is_read.is_(False))
+            .filter(or_(SiteNotice.user_id == user.id, SiteNotice.visitor_id == vid), SiteNotice.is_read.is_(False))
             .order_by(SiteNotice.created_at.desc())
             .limit(6)
             .all()
@@ -408,8 +439,8 @@ def register(app, templates, base_ctx):
                 submit_genres=SUBMIT_GENRES,
                 info_sources=INFO_SOURCES,
                 regions=REGIONS,
-                draft=pack(row) if row else None,
-                my_counts=counts_for(db, vid),
+                draft=pack(row, db=db) if row else None,
+                my_counts=counts_for(db, user.id),
                 notices=notices,
                 current_year=datetime.utcnow().year,
             ),
@@ -417,9 +448,10 @@ def register(app, templates, base_ctx):
 
     @app.get("/recommend/success/{number}")
     def recommend_success(number: str, request: Request, db: Session = Depends(get_db)):
+        user = require_user(request)
         row = db.query(BookSubmission).filter(
             BookSubmission.submission_number == number,
-            BookSubmission.visitor_id == request.state.visitor_id,
+            BookSubmission.user_id == user.id,
         ).one_or_none()
         if not row:
             raise HTTPException(404)
@@ -436,36 +468,9 @@ def register(app, templates, base_ctx):
 
     @app.get("/my-recommendations")
     def my_recommendations(request: Request, db: Session = Depends(get_db)):
-        vid = request.state.visitor_id
-        rows = (
-            db.query(BookSubmission)
-            .filter(BookSubmission.visitor_id == vid)
-            .order_by(BookSubmission.updated_at.desc())
-            .all()
-        )
-        notices = (
-            db.query(SiteNotice)
-            .filter(SiteNotice.visitor_id == vid)
-            .order_by(SiteNotice.created_at.desc())
-            .limit(20)
-            .all()
-        )
-        for n in notices:
-            n.is_read = True
-        db.commit()
-        return templates.TemplateResponse(
-            request,
-            "my_submissions.html",
-            base_ctx(
-                request,
-                title="我的推荐｜FOLIO 折页",
-                description="查看你提交的书籍推荐与审核进度。",
-                rows=rows,
-                labels=STATUS_LABELS,
-                notices=notices,
-                my_counts=counts_for(db, vid),
-            ),
-        )
+        if not current_user(request):
+            return RedirectResponse(login_url("/account?tab=recs"), status_code=303)
+        return RedirectResponse("/account?tab=recs", status_code=303)
 
     @app.get("/admin/login")
     def admin_login_page(request: Request):
@@ -498,8 +503,11 @@ def register(app, templates, base_ctx):
         duplicate: str = "",
         db: Session = Depends(get_db),
     ):
-        require_staff(request)
+        role = require_staff(request)
+        user = current_user(request)
         query = db.query(BookSubmission).filter(BookSubmission.status != "draft")
+        if role == "editor" and user:
+            query = query.filter(BookSubmission.assigned_editor_id == user.id)
         if q:
             like = f"%{q.strip()}%"
             query = query.filter(or_(
@@ -507,6 +515,7 @@ def register(app, templates, base_ctx):
                 BookSubmission.title.ilike(like),
                 BookSubmission.authors.ilike(like),
                 BookSubmission.nickname.ilike(like),
+                BookSubmission.contact_email.ilike(like),
             ))
         if status:
             query = query.filter(BookSubmission.status == status)
@@ -515,6 +524,7 @@ def register(app, templates, base_ctx):
         if duplicate == "1":
             query = query.filter(BookSubmission.duplicate_flag.is_(True))
         rows = query.order_by(BookSubmission.submitted_at.desc(), BookSubmission.id.desc()).limit(200).all()
+        decorate_people(db, rows)
         today = datetime.utcnow().date()
         month = datetime.utcnow().strftime("%Y-%m")
         stats = {
@@ -553,9 +563,12 @@ def register(app, templates, base_ctx):
     @app.get("/admin/submissions/{sid}")
     def admin_detail(sid: int, request: Request, db: Session = Depends(get_db)):
         require_staff(request)
+        user = current_user(request)
         row = db.query(BookSubmission).filter(BookSubmission.id == sid).one_or_none()
         if not row:
             raise HTTPException(404)
+        if user_role(request) == "editor" and user and row.assigned_editor_id != user.id:
+            raise HTTPException(403, "只能审核分配给你的投稿。")
         logs = (
             db.query(SubmissionAuditLog)
             .filter(SubmissionAuditLog.submission_id == row.id)
@@ -571,7 +584,7 @@ def register(app, templates, base_ctx):
                 title=f"审核 {row.submission_number}｜FOLIO 折页",
                 description="核验读者投稿并决定是否收录。",
                 row=row,
-                packed=pack(row, include_private=True),
+                packed=pack(row, include_private=True, db=db),
                 logs=logs,
                 duplicates=dups,
                 checks=CHECK_ITEMS,
@@ -593,6 +606,7 @@ def register(app, templates, base_ctx):
         db: Session = Depends(get_db),
     ):
         require_csrf(request, csrf)
+        user = require_user(request)
         data = await file.read()
         if len(data) > COVER_MAX_BYTES:
             raise HTTPException(400, "封面请小于 10MB。")
@@ -606,7 +620,7 @@ def register(app, templates, base_ctx):
         url = f"/static/uploads/submissions/{name}"
         row = None
         if id:
-            row = own_or_404(db, id, request.state.visitor_id)
+            row = own_or_404(db, id, request)
             if row.status not in ("draft", "needs_changes"):
                 raise HTTPException(400, "当前状态不能更换封面。")
         else:
@@ -618,6 +632,7 @@ def register(app, templates, base_ctx):
             db.add(row)
             db.flush()
             add_log(db, row, request.state.visitor_id, "created", "draft", "创建草稿并上传封面")
+        stamp_submitter(row, user)
         row.cover_url = url
         row.updated_at = datetime.utcnow()
         db.commit()
@@ -626,10 +641,11 @@ def register(app, templates, base_ctx):
     @app.post("/api/submissions/draft")
     def api_draft(payload: SubmissionIn, request: Request, db: Session = Depends(get_db)):
         require_csrf(request, payload.csrf)
+        user = require_user(request)
         vid = request.state.visitor_id
         row = None
         if payload.id:
-            row = own_or_404(db, payload.id, vid)
+            row = own_or_404(db, payload.id, request)
             if row.status not in ("draft", "needs_changes"):
                 raise HTTPException(400, "当前状态不能覆盖保存。")
         else:
@@ -638,21 +654,25 @@ def register(app, templates, base_ctx):
             db.flush()
             add_log(db, row, vid, "created", "draft")
         apply_payload(row, payload.model_dump(), draft=True)
+        stamp_submitter(row, user)
         db.commit()
         return {"ok": True, "id": row.id, "submissionNumber": row.submission_number, "status": row.status}
 
     @app.post("/api/submissions/submit")
     def api_submit(payload: SubmissionIn, request: Request, db: Session = Depends(get_db)):
         require_csrf(request, payload.csrf)
+        user = require_user(request)
+        if "@" not in (user.email or ""):
+            raise HTTPException(400, "请使用绑定了邮箱的账号登录后再推荐图书。")
         vid = request.state.visitor_id
         recent = (
             db.query(BookSubmission.submitted_at)
-            .filter(BookSubmission.visitor_id == vid, BookSubmission.submitted_at.isnot(None))
+            .filter(BookSubmission.user_id == user.id, BookSubmission.submitted_at.isnot(None))
             .all()
         )
         submit_rate_ok(request, [r[0].timestamp() for r in recent if r[0]])
         if payload.id:
-            row = own_or_404(db, payload.id, vid)
+            row = own_or_404(db, payload.id, request)
             if row.status not in ("draft", "needs_changes", "rejected", "withdrawn"):
                 raise HTTPException(400, "这份投稿正在审核，不能再次覆盖提交。")
         else:
@@ -660,14 +680,15 @@ def register(app, templates, base_ctx):
             db.add(row)
             db.flush()
         apply_payload(row, payload.model_dump(), draft=False)
+        stamp_submitter(row, user)
         dups = find_duplicates(db, row.title, row.isbn, row.authors)
         row.duplicate_flag = bool(dups)
         prev = row.status
-        row.status = "pending"
+        assign_submission(db, row)
         row.submitted_at = datetime.utcnow()
         row.updated_at = datetime.utcnow()
-        add_log(db, row, vid, "resubmitted" if prev in ("needs_changes", "rejected") else "submitted", "pending")
-        notify(db, vid, row.id, "推荐已收到", f"投稿编号 {row.submission_number} 已进入审核队列。", "success")
+        add_log(db, row, vid, "resubmitted" if prev in ("needs_changes", "rejected") else "submitted", row.status, row.assign_reason)
+        notify(db, vid, row.id, "推荐已收到", f"投稿编号 {row.submission_number} 已进入审核。", "success", user_id=user.id)
         db.commit()
         return {
             "ok": True,
@@ -680,10 +701,11 @@ def register(app, templates, base_ctx):
     @app.post("/api/submissions/{sid}/withdraw")
     def api_withdraw(sid: int, payload: ReviewIn, request: Request, db: Session = Depends(get_db)):
         require_csrf(request, payload.csrf)
-        row = own_or_404(db, sid, request.state.visitor_id)
-        if row.status != "pending":
-            raise HTTPException(400, "只有待审核的投稿可以撤回。")
-        add_log(db, row, request.state.visitor_id, "withdrawn", "withdrawn", payload.note)
+        user = require_user(request)
+        row = own_or_404(db, sid, request)
+        if row.status not in ("pending", "unassigned"):
+            raise HTTPException(400, "只有待审核或待分配的投稿可以撤回。")
+        add_log(db, row, str(user.id), "withdrawn", "withdrawn", payload.note)
         row.status = "withdrawn"
         row.updated_at = datetime.utcnow()
         db.commit()
@@ -693,52 +715,94 @@ def register(app, templates, base_ctx):
     def api_review(sid: int, payload: ReviewIn, request: Request, db: Session = Depends(get_db)):
         require_csrf(request, payload.csrf)
         role = require_staff(request)
+        user = current_user(request)
         row = db.query(BookSubmission).filter(BookSubmission.id == sid).one_or_none()
         if not row:
             raise HTTPException(404)
-        op = request.state.visitor_id if role == "editor" else "admin"
+        if role == "editor" and user and row.assigned_editor_id != user.id:
+            raise HTTPException(403, "只能审核分配给你的投稿。")
+        op = (user.username if user else "staff")
         action = payload.action
         if payload.internalNotes:
             row.internal_notes = payload.internalNotes[:2000]
-        if payload.assignedEditor:
-            row.assigned_editor = payload.assignedEditor[:80]
         if payload.checklist:
             row.checklist = json.dumps(payload.checklist, ensure_ascii=False)
-        if action == "save_notes":
+        if action == "reassign" and role == "admin":
+            eid = int(payload.assignedEditor or 0) if str(payload.assignedEditor).isdigit() else 0
+            editor = db.query(User).filter(User.id == eid, User.role.in_(["editor", "admin"])).one_or_none()
+            if not editor:
+                raise HTTPException(400, "请选择有效的编辑。")
+            row.assigned_editor_id = editor.id
+            row.assigned_editor = editor.nickname or editor.username
+            row.assigned_at = datetime.utcnow()
+            row.assign_reason = "管理员手动分配"
+            row.editor_task_status = "open"
+            if row.status == "unassigned":
+                row.status = "pending"
+            add_log(db, row, op, "assigned", row.status, f"editor:{editor.id}")
+        elif action == "claim" and role == "admin" and user:
+            row.assigned_editor_id = user.id
+            row.assigned_editor = user.nickname or user.username
+            row.assigned_at = datetime.utcnow()
+            row.assign_reason = "管理员亲自审核"
+            row.editor_task_status = "open"
+            if row.status == "unassigned":
+                row.status = "pending"
+            row.status = "reviewing"
+            add_log(db, row, op, "claimed", "reviewing")
+        elif action == "save_notes":
             add_log(db, row, op, "assigned", row.status, "保存内部备注")
         elif action == "start":
             row.status = "reviewing"
-            row.assigned_editor = row.assigned_editor or op
             add_log(db, row, op, "review_started", "reviewing")
-            notify(db, row.visitor_id, row.id, "开始审核", f"{row.submission_number} 正在核验中。", "info")
+            notify(db, row.visitor_id, row.id, "开始审核", f"{row.submission_number} 正在核验中。", "info", user_id=row.user_id)
         elif action == "changes":
             if not (payload.note or "").strip():
                 raise HTTPException(400, "请填写需要补充的内容。")
             row.status = "needs_changes"
             row.public_feedback = payload.note.strip()[:1000]
             add_log(db, row, op, "changes_requested", "needs_changes", payload.note)
-            notify(db, row.visitor_id, row.id, "需要补充资料", row.public_feedback, "warning")
+            notify(db, row.visitor_id, row.id, "需要补充资料", row.public_feedback, "warning", user_id=row.user_id)
+        elif action == "suggest_approve":
+            if role != "editor":
+                raise HTTPException(403, "建议通过是编辑操作。")
+            row.status = "editor_approve"
+            row.public_feedback = (payload.note or "编辑建议通过。")[:1000]
+            add_log(db, row, op, "editor_approve", "editor_approve", payload.note)
+        elif action == "suggest_reject":
+            if role != "editor":
+                raise HTTPException(403, "建议拒绝是编辑操作。")
+            if not (payload.note or "").strip():
+                raise HTTPException(400, "请填写建议拒绝的原因。")
+            row.status = "editor_reject"
+            row.public_feedback = payload.note.strip()[:1000]
+            add_log(db, row, op, "editor_reject", "editor_reject", payload.note)
         elif action == "reject":
+            if role != "admin":
+                raise HTTPException(403, "只有管理员可以最终拒绝。")
             if not (payload.note or "").strip():
                 raise HTTPException(400, "不予通过必须填写原因。")
             row.status = "rejected"
             row.public_feedback = payload.note.strip()[:1000]
-            row.reviewed_at = datetime.utcnow()
-            add_log(db, row, op, "rejected", "rejected", payload.note)
-            notify(db, row.visitor_id, row.id, "这次没有通过审核", row.public_feedback, "error")
+            close_editor_task(row)
+            add_log(db, row, op, "admin_rejected", "rejected", payload.note)
+            notify(db, row.visitor_id, row.id, "这次没有通过审核", row.public_feedback, "error", user_id=row.user_id)
         elif action == "approve":
+            if role != "admin":
+                raise HTTPException(403, "只有管理员可以最终通过。")
             book = publish_book(db, row, payload)
             row.status = "approved"
             row.approved_book_id = book.id
             row.candidate_pool = bool(payload.candidatePool)
-            row.reviewed_at = datetime.utcnow()
             row.public_feedback = "已收录到书籍库。是否进入本期推荐，由编辑另外决定。"
-            add_log(db, row, op, "approved", "approved", f"book:{book.slug}")
-            notify(db, row.visitor_id, row.id, "审核通过", "你的推荐已进入 FOLIO 书籍库。", "success")
+            close_editor_task(row)
+            add_log(db, row, op, "admin_approved", "approved", f"book:{book.slug}")
+            notify(db, row.visitor_id, row.id, "审核通过", "你的推荐已进入 FOLIO 书籍库。", "success", user_id=row.user_id)
         elif action == "delete":
             if role != "admin":
                 raise HTTPException(403, "只有管理员可以删除投稿。")
             row.status = "withdrawn"
+            close_editor_task(row)
             add_log(db, row, op, "withdrawn", "withdrawn", "管理员删除")
         else:
             raise HTTPException(400, "未知审核操作。")

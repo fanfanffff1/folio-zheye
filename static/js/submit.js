@@ -53,8 +53,6 @@
       genres: genres,
       tags: tags,
       informationSource: fd.get("informationSource"),
-      nickname: fd.get("nickname"),
-      contactEmail: fd.get("contactEmail"),
       confirmTruth: form.querySelector("[name=confirmTruth]").checked,
       confirmReview: form.querySelector("[name=confirmReview]").checked,
     };
@@ -225,7 +223,7 @@
   try {
     const saved = JSON.parse(localStorage.getItem(draftKey) || "null");
     if (saved && !idInput.value) {
-      ["title", "authors", "introduction", "originalTitle", "chineseTitle", "publisher", "isbn", "nickname"].forEach(function (name) {
+      ["title", "authors", "introduction", "originalTitle", "chineseTitle", "publisher", "isbn"].forEach(function (name) {
         const el = form.querySelector("[name=" + name + "]");
         if (el && saved[name] && !el.value) el.value = saved[name];
       });

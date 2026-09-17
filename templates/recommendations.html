@@ -18,6 +18,7 @@
   <div class="cards">
     {% for book in block.books %}
     <article class="card">
+      {% include "_fav.html" %}
       <a href="/books/{{ book.slug }}"><img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" loading="lazy" /></a>
       <p class="num">No. {{ '%02d'|format(loop.index) }}</p>
       <h3><a href="/books/{{ book.slug }}">{{ book.original_title }}</a></h3>

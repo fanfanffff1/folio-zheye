@@ -41,7 +41,12 @@
         <a href="/recommendations" {% if nav_current=="issue" %}aria-current="page"{% endif %}>本期新书推荐</a>
         <a href="/archive" {% if nav_current=="archive" %}aria-current="page"{% endif %}>往期推荐</a>
         <a href="/search" {% if nav_current=="search" %}aria-current="page"{% endif %}>书籍检索</a>
-        <a href="/recommend" {% if nav_current=="submit" %}aria-current="page"{% endif %}>推荐一本书</a>
+        <a href="/recommend" {% if nav_current=="submit" %}aria-current="page"{% endif %} data-need-login="recommend">推荐一本书</a>
+        {% if role == "admin" %}
+        <a href="/admin/dashboard" {% if nav_current=="admin" %}aria-current="page"{% endif %}>管理控制台</a>
+        {% elif role == "editor" %}
+        <a href="/editor/workbench" {% if nav_current=="admin" %}aria-current="page"{% endif %}>编辑工作台</a>
+        {% endif %}
         <form class="header-search nav-search" action="/search" method="get" role="search">
           <label class="sr-only" for="nav-q-mobile">搜索书名、作者或关键词</label>
           <input id="nav-q-mobile" name="q" type="search" placeholder="搜索书名、作者或关键词……" maxlength="120" />
@@ -61,6 +66,21 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.8 4 6 4 9s-1.4 6.2-4 9c-2.6-2.8-4-6-4-9s1.4-6.2 4-9z"/></svg>
         </a>
         <span class="ui-lang" title="网站界面目前为中文">中文</span>
+        {% if current_user %}
+        <a class="header-login is-account" href="/account" {% if nav_current=="account" %}aria-current="page"{% endif %}>
+          {% if current_user.avatar_url %}
+          <img class="avatar avatar-sm" src="{{ current_user.avatar_url }}" alt="" width="20" height="20" />
+          {% else %}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.6-3.2 4-4.8 7-4.8S17.4 15.8 19 19"/></svg>
+          {% endif %}
+          {{ current_user.nickname or "个人中心" }}
+        </a>
+        {% else %}
+        <a class="header-login" href="/login?next={{ login_next | urlencode }}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 19c1.6-3.2 4-4.8 7-4.8S17.4 15.8 19 19"/></svg>
+          登录
+        </a>
+        {% endif %}
         <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav-panel" data-menu>菜单</button>
       </div>
     </div>
@@ -82,7 +102,18 @@
     </footer>
   </div>
   <button class="back-top" type="button" data-back-top hidden>返回顶部</button>
+  <dialog class="login-gate" id="login-gate">
+    <form method="dialog" class="auth-card">
+      <h2 data-gate-title>请先登录</h2>
+      <p data-gate-copy>登录后可以把这本书放进“我的喜欢”。</p>
+      <p>
+        <a class="btn-primary" data-gate-login href="/login">去登录</a>
+        <button type="submit" value="cancel">关闭</button>
+      </p>
+    </form>
+  </dialog>
   <script src="/static/js/folio-ui.js" defer></script>
+  <script src="/static/js/auth-ui.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

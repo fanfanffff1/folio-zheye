@@ -89,6 +89,14 @@
     return `<p class="body spoiler" data-spoiler>包含剧透，点击查看</p><p class="body spoiler-src" hidden>${escapeHtml(c.content)}</p>`;
   }
 
+  function avatarHtml(c) {
+    const name = c.nickname || "访客";
+    if (c.avatarUrl) {
+      return `<img class="avatar avatar-sm" src="${escapeHtml(c.avatarUrl)}" alt="" width="36" height="36" />`;
+    }
+    return `<span class="avatar-fallback" aria-hidden="true">${escapeHtml(name.slice(0, 1))}</span>`;
+  }
+
   function commentHtml(c, isReply) {
     const replies = c.replies || [];
     const shown = replies.slice(0, 2).map((r) => commentHtml(r, true)).join("");
@@ -97,7 +105,10 @@
          <div hidden data-more-box>${replies.slice(2).map((r) => commentHtml(r, true)).join("")}</div>`
       : "";
     return `<article class="comment ${isReply ? "replies" : ""}" data-id="${c.id}">
-      <p><strong>${escapeHtml(c.nickname)}</strong> · <time>${c.createdAt.slice(0, 16).replace("T", " ")}</time></p>
+      <div class="comment-head">
+        ${avatarHtml(c)}
+        <p><strong>${escapeHtml(c.nickname)}</strong> · <time>${c.createdAt.slice(0, 16).replace("T", " ")}</time>${c.status === "pending" ? " · 待审核" : ""}</p>
+      </div>
       ${bodyHtml(c)}
       <p>
         <button type="button" data-like="${c.id}" aria-pressed="${c.liked}">赞 ${c.likeCount}</button>
@@ -188,7 +199,7 @@
     status.textContent = "正在发布…";
     const fd = new FormData(form);
     try {
-      await jsonFetch(`/api/books/${slug}/comments`, {
+      const data = await jsonFetch(`/api/books/${slug}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -204,7 +215,7 @@
       if (hidden) hidden.remove();
       try { localStorage.removeItem(draftKey); } catch (err) {}
       updateComposer();
-      status.textContent = "已发布。";
+      status.textContent = data.message || (data.status === "pending" ? "已提交，等待复核。" : "评论已发布。");
       await loadComments();
     } catch (err) {
       status.textContent = err.message;

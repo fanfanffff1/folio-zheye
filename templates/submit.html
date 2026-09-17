@@ -119,12 +119,7 @@
             </label>
           </details>
 
-          <div class="submitter-block">
-            <h2>投稿人信息</h2>
-            <label>推荐人昵称<input name="nickname" maxlength="24" placeholder="怎么称呼你" value="{{ draft.nickname if draft else '' }}" /></label>
-            <label>联系邮箱<input name="contactEmail" type="email" maxlength="200" placeholder="仅用于通知审核结果" value="" autocomplete="email" /></label>
-            <p class="hint">邮箱仅用于发送审核结果和补充信息通知，不会显示在书籍页面中。目前用浏览器访客身份识别你的投稿，无需另设账号。</p>
-          </div>
+          <p class="hint">投稿会自动记入你的登录账号（昵称与邮箱），无需再填写投稿人信息。邮箱不会出现在书籍页。</p>
 
           <label class="confirm"><input type="checkbox" name="confirmTruth" required /> 我确认以上内容为真实推荐，未故意提交虚假或无关信息。</label>
           <label class="confirm"><input type="checkbox" name="confirmReview" required /> 我同意该内容进入FOLIO编辑审核流程，并允许编辑在不改变原意的前提下进行文字整理。</label>

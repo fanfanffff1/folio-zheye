@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% from "_person.html" import person_chip %}
 {% block content %}
 <section class="admin-page">
   <p class="kicker">Staff</p>
   <h1>书籍投稿审核</h1>
+  <p><a href="/studio">返回工作台</a> · <a href="/admin/comments">评论审核</a></p>
   <div class="stat-row">
     <article>待审核 <b>{{ stats.pending }}</b></article>
     <article>审核中 <b>{{ stats.reviewing }}</b></article>
@@ -40,7 +42,7 @@
         <td>{% if row.cover_url %}<img src="{{ row.cover_url }}" alt="" width="36" height="54" />{% endif %}</td>
         <td>{{ row.title }}{% if row.duplicate_flag %} · 疑似重复{% endif %}</td>
         <td>{{ row.authors }}</td>
-        <td>{{ row.nickname or "匿名读者" }}</td>
+        <td>{{ person_chip(row.author_name or row.nickname or "登录用户", row.author_avatar) }}<br /><small>{{ row.contact_email }}</small></td>
         <td>{{ row.language_code }}</td>
         <td>{{ row.submitted_at.strftime('%m-%d %H:%M') if row.submitted_at else "—" }}</td>
         <td>{{ row.completeness }}%</td>

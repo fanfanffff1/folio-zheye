@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_person.html" import person_chip %}
 {% block content %}
 <section class="hero-stage">
   <div class="hero-grid">
@@ -95,7 +96,8 @@
   {% if recent_view %}
   {% for item in recent_view %}
   <article class="comment">
-    <p><a href="/books/{{ item.book.slug }}">{{ item.book.original_title }}</a> · {{ item.comment.nickname }}</p>
+    <p><a href="/books/{{ item.book.slug }}">{{ item.book.original_title }}</a></p>
+    {{ person_chip(item.comment.author_name or item.comment.nickname, item.comment.author_avatar) }}
     <p>{{ item.comment.content }}</p>
   </article>
   {% endfor %}

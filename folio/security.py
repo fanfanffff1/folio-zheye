@@ -117,10 +117,18 @@ def is_editor(request: Request) -> bool:
 
 
 def user_role(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    if user is not None and getattr(user, "status", "") == "active":
+        if getattr(user, "role", "") == "admin":
+            return "admin"
+        if getattr(user, "role", "") == "editor":
+            return "editor"
     if is_admin(request):
         return "admin"
     if is_editor(request):
         return "editor"
+    if user is not None:
+        return "user"
     return "reader"
 
 
@@ -132,7 +140,7 @@ def require_staff(request: Request) -> str:
 
 
 def require_admin(request: Request) -> str:
-    if not is_admin(request):
+    if user_role(request) != "admin" and not is_admin(request):
         raise HTTPException(403, "需要管理员权限。")
     return "admin"
 

@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine,
 )
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -102,11 +103,13 @@ class Comment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
     visitor_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    guest_identity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     nickname: Mapped[str] = mapped_column(String(40))
     content: Mapped[str] = mapped_column(Text)
     parent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("comments.id"), nullable=True)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="published", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -135,6 +138,7 @@ class BookSubmission(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     submission_number: Mapped[str] = mapped_column(String(32), unique=True, index=True, default="")
     visitor_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     nickname: Mapped[str] = mapped_column(String(40), default="")
     contact_email: Mapped[str] = mapped_column(String(200), default="")
     title: Mapped[str] = mapped_column(String(160), default="")
@@ -160,6 +164,10 @@ class BookSubmission(Base):
     information_source_note: Mapped[str] = mapped_column(String(400), default="")
     status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
     assigned_editor: Mapped[str] = mapped_column(String(80), default="")
+    assigned_editor_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    assign_reason: Mapped[str] = mapped_column(String(400), default="")
+    editor_task_status: Mapped[str] = mapped_column(String(20), default="")
     public_feedback: Mapped[str] = mapped_column(Text, default="")
     internal_notes: Mapped[str] = mapped_column(Text, default="")
     checklist: Mapped[str] = mapped_column(Text, default="")
@@ -189,6 +197,7 @@ class SiteNotice(Base):
     __tablename__ = "site_notices"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     visitor_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     submission_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="")
     body: Mapped[str] = mapped_column(Text, default="")
@@ -197,8 +206,113 @@ class SiteNotice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(300))
+    nickname: Mapped[str] = mapped_column(String(30), default="")
+    avatar_url: Mapped[str] = mapped_column(String(400), default="")
+    role: Mapped[str] = mapped_column(String(16), default="user", index=True)
+    status: Mapped[str] = mapped_column(String(24), default="active", index=True)
+    editor_languages: Mapped[str] = mapped_column(String(80), default="")
+    editor_genres: Mapped[str] = mapped_column(String(400), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthDevice(Base):
+    __tablename__ = "auth_devices"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    label: Mapped[str] = mapped_column(String(80), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("user_id", "token_hash", name="uq_device_user_token"),)
+
+
+class DeviceChallenge(Base):
+    __tablename__ = "device_challenges"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    label: Mapped[str] = mapped_column(String(80), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class EditorApplication(Base):
+    __tablename__ = "editor_applications"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    display_name: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(200), default="")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    admin_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class GuestIdentity(Base):
+    __tablename__ = "guest_identities"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(40), default="")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    visitor_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BookFavorite(Base):
+    __tablename__ = "book_favorites"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("user_id", "book_id", name="uq_fav_user_book"),)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    type: Mapped[str] = mapped_column(String(40), default="reply")
+    actor_name: Mapped[str] = mapped_column(String(40), default="")
+    book_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    comment_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _add_column(table: str, column: str, ddl: str) -> None:
+    with engine.begin() as conn:
+        rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        existing = {row[1] for row in rows}
+        if column not in existing:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 def init_db() -> None:
@@ -208,6 +322,20 @@ def init_db() -> None:
     except OperationalError as exc:
         if "already exists" not in str(exc):
             raise
+    try:
+        _add_column("comments", "user_id", "INTEGER")
+        _add_column("comments", "guest_identity_id", "INTEGER")
+        _add_column("book_submissions", "user_id", "INTEGER")
+        _add_column("site_notices", "user_id", "INTEGER")
+        _add_column("auth_sessions", "device_id", "INTEGER")
+        _add_column("book_submissions", "assigned_editor_id", "INTEGER")
+        _add_column("book_submissions", "assigned_at", "DATETIME")
+        _add_column("book_submissions", "assign_reason", "VARCHAR(400)")
+        _add_column("book_submissions", "editor_task_status", "VARCHAR(20)")
+        _add_column("users", "editor_languages", "VARCHAR(80)")
+        _add_column("users", "editor_genres", "VARCHAR(400)")
+    except OperationalError:
+        pass
 
 
 Index("ix_books_search", Book.original_title, Book.chinese_title, Book.isbn13)
