@@ -27,12 +27,60 @@ NICK_MIN = 1
 NICK_MAX = 24
 
 LANGS = {
-    "en": {"zh": "英语", "native": "English", "accent": "#8c2f2a"},
-    "es": {"zh": "西班牙语", "native": "Español", "accent": "#7a4a2b"},
-    "ja": {"zh": "日语", "native": "日本語", "accent": "#4a5a3a"},
-    "ko": {"zh": "韩语", "native": "한국어", "accent": "#3d4d6b"},
-    "fr": {"zh": "法语", "native": "Français", "accent": "#5a3d5a"},
-    "it": {"zh": "意大利语", "native": "Italiano", "accent": "#6b4a3d"},
+    "en": {
+        "zh": "英语",
+        "native": "English",
+        "tagline": "Stories for a Brighter You",
+        "theme": "sky",
+        "accent": "#7BA7C9",
+        "cover": "/static/img/lang-en.jpg",
+    },
+    "fr": {
+        "zh": "法语",
+        "native": "Français",
+        "tagline": "Des histoires sans frontières",
+        "theme": "mint",
+        "accent": "#7FB7A6",
+        "cover": "/static/img/lang-fr.jpg",
+    },
+    "es": {
+        "zh": "西班牙语",
+        "native": "Español",
+        "tagline": "Historias para un mundo más grande",
+        "theme": "peach",
+        "accent": "#E2B3A4",
+        "cover": "/static/img/lang-es.jpg",
+    },
+    "ja": {
+        "zh": "日语",
+        "native": "日本語",
+        "tagline": "ことばで、もっと遠くへ",
+        "theme": "sakura",
+        "accent": "#D9A7B3",
+        "cover": "/static/img/lang-ja.jpg",
+    },
+    "ko": {
+        "zh": "韩语",
+        "native": "한국어",
+        "tagline": "이야기가 만드는 더 넓은 세상",
+        "theme": "lilac",
+        "accent": "#B7A7D9",
+        "cover": "/static/img/lang-ko.jpg",
+    },
+    "it": {
+        "zh": "意大利语",
+        "native": "Italiano",
+        "tagline": "Storie che restano",
+        "theme": "cream",
+        "accent": "#C9B87A",
+        "cover": "/static/img/lang-it.jpg",
+    },
+}
+
+MONTH_EN = {
+    1: "JANUARY", 2: "FEBRUARY", 3: "MARCH", 4: "APRIL",
+    5: "MAY", 6: "JUNE", 7: "JULY", 8: "AUGUST",
+    9: "SEPTEMBER", 10: "OCTOBER", 11: "NOVEMBER", 12: "DECEMBER",
 }
 
 GENRES = [

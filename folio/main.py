@@ -12,7 +12,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .config import (
-    CONTACT_EMAIL, GENRES, ISSUE_MONTH, ISSUE_TITLE, ISSUE_YEAR, LANGS, SITE_NAME,
+    CONTACT_EMAIL, GENRES, ISSUE_MONTH, ISSUE_TITLE, ISSUE_YEAR, LANGS, MONTH_EN, SITE_NAME,
     SITE_TAGLINE, STATIC_DIR, TEMPLATE_DIR,
 )
 from .models import Book, Comment, CommentLike, CommentReport, Issue, Rating, SessionLocal, init_db
@@ -35,6 +35,28 @@ def get_db():
         db.close()
 
 
+def nav_current(request: Request) -> str:
+    path = request.url.path
+    if path.startswith("/search"):
+        return "search"
+    if path.startswith("/archive"):
+        return "archive"
+    if path.startswith("/recommendations") or path.startswith("/books") or path.startswith("/explore"):
+        return "issue"
+    if path == "/":
+        return "home"
+    return ""
+
+
+def page_kind(request: Request) -> str:
+    path = request.url.path
+    if path == "/":
+        return "home"
+    if path.startswith("/books/"):
+        return "book"
+    return "inner"
+
+
 def base_ctx(request: Request, **extra):
     ctx = {
         "request": request,
@@ -43,10 +65,13 @@ def base_ctx(request: Request, **extra):
         "issue_title": ISSUE_TITLE,
         "issue_year": ISSUE_YEAR,
         "issue_month": ISSUE_MONTH,
+        "month_en": MONTH_EN.get(ISSUE_MONTH, ""),
         "langs": LANGS,
         "genres": GENRES,
         "email": CONTACT_EMAIL,
         "now": datetime.utcnow(),
+        "nav_current": nav_current(request),
+        "page_kind": page_kind(request),
     }
     ctx.update(extra)
     return ctx
@@ -100,10 +125,13 @@ def rating_summary(db: Session, book_id: int, visitor_id: str | None = None) -> 
 def home(request: Request, db: Session = Depends(get_db)):
     english = featured_books(db, "en", 8)
     others = []
-    for code in LANGS:
-        if code == "en":
-            continue
-        others.append({"code": code, "meta": LANGS[code], "books": featured_books(db, code, 4)})
+    lang_cards = []
+    for code, meta in LANGS.items():
+        books = featured_books(db, code, 8)
+        n = len(books)
+        lang_cards.append({"code": code, "meta": meta, "count": n})
+        if code != "en":
+            others.append({"code": code, "meta": meta, "books": books[:4]})
     genre_counts = (
         db.query(Book.primary_genre, func.count(Book.id))
         .group_by(Book.primary_genre)
@@ -138,6 +166,7 @@ def home(request: Request, db: Session = Depends(get_db)):
             description="以英文原版新书为轴的多语种荐读杂志。本期六种语言各八本2026年新书。",
             english=english,
             others=others,
+            lang_cards=lang_cards,
             genre_counts=genre_counts,
             recent_view=recent_view,
             top_rated=top_rated,

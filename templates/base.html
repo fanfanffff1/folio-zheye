@@ -9,38 +9,56 @@
   <meta property="og:description" content="{{ description }}" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="{{ request.base_url }}{{ request.url.path.lstrip('/') }}" />
+  {% if page_kind == "home" %}
+  <link rel="preload" as="image" href="/static/img/bg-home-desktop.jpg" media="(min-width: 1024px)" />
+  <link rel="preload" as="image" href="/static/img/bg-home-tablet.jpg" media="(min-width: 768px) and (max-width: 1023px)" />
+  <link rel="preload" as="image" href="/static/img/bg-home-mobile.jpg" media="(max-width: 767px)" />
+  <link rel="preload" as="image" href="/static/img/folio-mark.png" />
+  <link rel="preload" as="image" href="/static/img/shelf.png" />
+  {% else %}
+  <link rel="preload" as="image" href="/static/img/bg-detail-desktop.jpg" media="(min-width: 1024px)" />
+  <link rel="preload" as="image" href="/static/img/bg-detail-tablet.jpg" media="(min-width: 768px) and (max-width: 1023px)" />
+  <link rel="preload" as="image" href="/static/img/bg-detail-mobile.jpg" media="(max-width: 767px)" />
+  <link rel="preload" as="image" href="/static/img/folio-mark.png" />
+  {% endif %}
   <link rel="stylesheet" href="/static/css/folio.css" />
 </head>
-<body>
+<body class="page-{{ page_kind }}">
   <a class="skip" href="#main">跳到正文</a>
-  <div class="wrap">
-    <header class="site-header">
-      <a class="brand" href="/">FOLIO / 折页</a>
-      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav" data-menu>菜单</button>
-      <nav class="nav" id="nav">
-        <a href="/recommendations">本期新书推荐</a>
-        <a href="/archive">往期推荐</a>
-        <a href="/search">书籍检索</a>
+  <header class="site-header" data-header>
+    <div class="header-inner">
+      <a class="brand" href="/" {% if nav_current=="home" %}aria-current="page"{% endif %}>
+        <img class="brand-mark" src="/static/img/folio-mark.png" width="180" height="64" alt="" />
+        <span class="sr-only">FOLIO 折页</span>
+      </a>
+      <nav class="nav" id="nav-panel" data-nav>
+        <button class="menu-close" type="button" data-menu-close>关闭</button>
+        <a href="/recommendations" {% if nav_current=="issue" %}aria-current="page"{% endif %}>本期新书推荐</a>
+        <a href="/archive" {% if nav_current=="archive" %}aria-current="page"{% endif %}>往期推荐</a>
+        <a href="/search" {% if nav_current=="search" %}aria-current="page"{% endif %}>书籍检索</a>
       </nav>
-    </header>
+      <div class="header-tools">
+        <a class="icon-btn" href="/search" aria-label="书籍检索">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16.2 16.2L21 21"/></svg>
+        </a>
+        <a class="icon-btn" href="/#languages" aria-label="多语言入口">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.8 4 6 4 9s-1.4 6.2-4 9c-2.6-2.8-4-6-4-9s1.4-6.2 4-9z"/></svg>
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav-panel" data-menu>菜单</button>
+      </div>
+    </div>
+  </header>
+  <div class="wrap">
     <main id="main">
       {% block content %}{% endblock %}
     </main>
     <footer class="footer">
+      <p class="hand-script footer-script" aria-hidden="true">Same Stories, Brighter Tomorrows</p>
       <p>一起读书，一起交流。如果有什么想交流的，请联系：{{ email }}</p>
       <p>本站仅用于图书介绍与阅读交流，不提供购买服务。</p>
     </footer>
   </div>
-  <script>
-    const btn = document.querySelector("[data-menu]");
-    const nav = document.getElementById("nav");
-    if (btn && nav) {
-      btn.addEventListener("click", () => {
-        const open = nav.classList.toggle("open");
-        btn.setAttribute("aria-expanded", open ? "true" : "false");
-      });
-    }
-  </script>
+  <script src="/static/js/folio-ui.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

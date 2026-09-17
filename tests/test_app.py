@@ -44,6 +44,21 @@ def test_home_ok():
     assert "en-the-sleeping-sisters.jpg" not in r.text
     assert "Dear Debbie" in r.text
     assert "card-en-" in r.text
+    assert "从一本书出发" in r.text
+    assert "跨越语言，遇见故事" in r.text
+    assert "开始翻阅本期新书" in r.text
+    assert "folio-mark.png" in r.text
+    assert "/static/img/shelf.png" in r.text
+    assert "/static/img/lang-en.jpg" in r.text
+    assert "/static/img/lang-fr.jpg" in r.text
+    assert "/static/img/lang-es.jpg" in r.text
+    assert "/static/img/lang-ja.jpg" in r.text
+    assert "/static/img/lang-ko.jpg" in r.text
+    assert "/static/img/lang-it.jpg" in r.text
+    assert "page-home" in r.text
+    assert "bg-home-desktop.jpg" in r.text
+    for native in ["English", "Français", "Español", "日本語", "한국어", "Italiano"]:
+        assert native in r.text
 
 
 def test_language_pages_have_eight():
