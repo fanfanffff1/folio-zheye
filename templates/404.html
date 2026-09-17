@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="not-found">
+  <p class="kicker">404</p>
+  <h1>没有找到这本书</h1>
+  <p>链接可能已过期，或书名拼写有出入。你可以回到首页，或从本期推荐里再找一本。</p>
+  <p class="hero-actions">
+    <a class="btn-primary" href="/">返回首页</a>
+    <a class="btn-text" href="/recommendations">浏览本期推荐 <span aria-hidden="true">→</span></a>
+    <a class="btn-text" href="/search">搜索其他书籍 <span aria-hidden="true">→</span></a>
+  </p>
+</section>
+{% endblock %}

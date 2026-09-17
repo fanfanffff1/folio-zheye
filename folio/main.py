@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+import re
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -25,6 +28,24 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 templates.env.filters["e"] = html_safe
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/covers", StaticFiles(directory=str(STATIC_DIR / "covers")), name="covers")
+
+
+@app.exception_handler(StarletteHTTPException)
+async def html_http_exception(request: Request, exc: StarletteHTTPException):
+    accept = request.headers.get("accept", "")
+    wants_json = "application/json" in accept and "text/html" not in accept
+    if (
+        exc.status_code == 404
+        and not request.url.path.startswith("/api/")
+        and not wants_json
+    ):
+        return templates.TemplateResponse(
+            request,
+            "404.html",
+            base_ctx(request, title="未找到｜FOLIO 折页", description="没有找到这本书或这个页面。"),
+            status_code=404,
+        )
+    return await http_exception_handler(request, exc)
 
 
 def get_db():
@@ -57,6 +78,62 @@ def page_kind(request: Request) -> str:
     return "inner"
 
 
+def as_paragraphs(text: str):
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    parts = [p.strip() for p in re.split(r"\n+", raw) if p.strip()]
+    if len(parts) == 1 and len(parts[0]) > 90:
+        grouped, buf = [], ""
+        for chunk in re.split(r"(?<=。)", parts[0]):
+            if not chunk.strip():
+                continue
+            buf += chunk
+            if len(buf) >= 72:
+                grouped.append(buf.strip())
+                buf = ""
+        if buf.strip():
+            grouped.append(buf.strip())
+        return grouped or parts
+    return parts
+
+
+def as_points(text: str):
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    for sep in ["。", "；", ";", "、"]:
+        if sep in raw:
+            return [item.strip("。；;、 ") for item in raw.split(sep) if item.strip("。；;、 ")]
+    return [raw]
+
+
+def dist_rows_from(summary: dict):
+    total = summary.get("count") or 0
+    rows = []
+    for n in [5, 4, 3, 2, 1]:
+        count = (summary.get("distribution") or {}).get(n, 0)
+        pct = int(round(count / total * 100)) if total else 0
+        rows.append({"n": n, "c": count, "pct": pct})
+    return rows
+
+
+def related_books(db: Session, book: Book, limit: int = 6):
+    q = db.query(Book).filter(Book.id != book.id)
+    if book.author_id:
+        q = q.filter(or_(
+            Book.language_code == book.language_code,
+            Book.primary_genre == book.primary_genre,
+            Book.author_id == book.author_id,
+        ))
+    else:
+        q = q.filter(or_(
+            Book.language_code == book.language_code,
+            Book.primary_genre == book.primary_genre,
+        ))
+    return q.order_by(Book.is_featured.desc(), Book.featured_rank.asc(), Book.id.asc()).limit(limit).all()
+
+
 def base_ctx(request: Request, **extra):
     ctx = {
         "request": request,
@@ -72,6 +149,7 @@ def base_ctx(request: Request, **extra):
         "now": datetime.utcnow(),
         "nav_current": nav_current(request),
         "page_kind": page_kind(request),
+        "csrf": getattr(request.state, "csrf", "") or request.cookies.get("folio_csrf") or "",
     }
     ctx.update(extra)
     return ctx
@@ -223,22 +301,53 @@ def book_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     siblings = []
     if book.is_featured:
         siblings = featured_books(db, book.language_code, 8)
+    else:
+        siblings = (
+            db.query(Book)
+            .filter(Book.language_code == book.language_code)
+            .order_by(Book.publication_year.desc(), Book.id.asc())
+            .limit(24)
+            .all()
+        )
     idx = next((i for i, b in enumerate(siblings) if b.id == book.id), None)
     prev_b = siblings[idx - 1] if idx not in (None, 0) else None
     next_b = siblings[idx + 1] if idx is not None and idx + 1 < len(siblings) else None
+    chinese = book.chinese_title or book.original_title
+    host = str(request.base_url).rstrip("/")
+    cover = book.cover_image or ""
+    og_image = cover if cover.startswith("http") else (host + cover if cover else "")
     return templates.TemplateResponse(
         request,
         "book.html",
         base_ctx(
             request,
-            title=f"{book.original_title} · {book.chinese_title or SITE_NAME}",
-            description=(book.short_description_zh or "")[:120],
+            title=f"《{chinese}》书籍介绍与读者评价｜FOLIO 折页",
+            description=(book.short_description_zh or book.full_description_zh or f"了解{chinese}的出版信息、内容简介、推荐理由与读者讨论。")[:160],
             book=book,
             summary=summary,
+            dist_rows=dist_rows_from(summary),
             prev_b=prev_b,
             next_b=next_b,
-            csrf=request.cookies.get("folio_csrf") or "",
+            related=related_books(db, book),
+            synopsis_paras=as_paragraphs(book.full_description_zh),
+            reason_paras=as_paragraphs(book.recommendation_zh),
+            audience_points=as_points(book.audience_zh),
+            author_paras=as_paragraphs(book.author.biography_zh if book.author else ""),
+            title_status=(
+                "temporary" if "暂译" in (book.chinese_title or "")
+                else "official" if book.chinese_title else "missing"
+            ),
+            verification_note=(
+                "书名、作者、出版社和出版日期已经核对。"
+                if book.verification_status == "verified"
+                else "部分信息仍待核对。"
+                if book.verification_status == "partial"
+                else "出版信息待核对。"
+            ),
+            csrf=getattr(request.state, "csrf", "") or request.cookies.get("folio_csrf") or "",
             visitor_id=request.state.visitor_id,
+            og_image=og_image,
+            og_type="book",
         ),
     )
 
@@ -412,6 +521,7 @@ class CommentIn(BaseModel):
     nickname: str
     content: str
     parent_id: Optional[int] = None
+    spoiler: bool = False
     csrf: str = ""
 
 
@@ -472,33 +582,42 @@ def api_comments(
         x.comment_id for x in db.query(CommentLike).filter(CommentLike.visitor_id == vid).all()
     }
 
+    def unpack(text: str):
+        spoiler = (text or "").startswith("[剧透]")
+        body = (text or "")[3:].lstrip() if spoiler else (text or "")
+        return spoiler, body
+
     def pack(c: Comment):
+        spoiler, body = unpack(c.content)
         replies = (
             db.query(Comment)
             .filter(Comment.parent_id == c.id, Comment.status == "published", Comment.deleted_at.is_(None))
             .order_by(Comment.created_at.asc())
             .all()
         )
+        packed_replies = []
+        for r in replies:
+            rs, rb = unpack(r.content)
+            packed_replies.append({
+                "id": r.id,
+                "nickname": r.nickname,
+                "content": rb,
+                "containsSpoiler": rs,
+                "createdAt": r.created_at.isoformat(),
+                "likeCount": r.like_count,
+                "liked": r.id in liked,
+                "mine": r.visitor_id == vid,
+            })
         return {
             "id": c.id,
             "nickname": c.nickname,
-            "content": c.content,
+            "content": body,
+            "containsSpoiler": spoiler,
             "createdAt": c.created_at.isoformat(),
             "likeCount": c.like_count,
             "liked": c.id in liked,
             "mine": c.visitor_id == vid,
-            "replies": [
-                {
-                    "id": r.id,
-                    "nickname": r.nickname,
-                    "content": r.content,
-                    "createdAt": r.created_at.isoformat(),
-                    "likeCount": r.like_count,
-                    "liked": r.id in liked,
-                    "mine": r.visitor_id == vid,
-                }
-                for r in replies
-            ],
+            "replies": packed_replies,
         }
 
     return {"comments": [pack(c) for c in roots], "total": total, "offset": offset, "hasMore": offset + len(roots) < total}
@@ -513,6 +632,8 @@ def api_comment(slug: str, payload: CommentIn, request: Request, db: Session = D
         raise HTTPException(404)
     nick = clean_nick(payload.nickname)
     content = clean_comment(payload.content)
+    if payload.spoiler and not content.startswith("[剧透]"):
+        content = "[剧透] " + content
     parent = None
     if payload.parent_id:
         parent = db.query(Comment).filter(Comment.id == payload.parent_id, Comment.book_id == book.id).one_or_none()
@@ -634,6 +755,40 @@ async def api_moderate(cid: int, request: Request, db: Session = Depends(get_db)
         raise HTTPException(400)
     db.commit()
     return {"ok": True, "status": comment.status}
+
+
+@app.get("/api/search/suggest")
+def search_suggest(q: str = "", db: Session = Depends(get_db)):
+    keyword = (q or "").strip()
+    if len(keyword) < 1:
+        return {"results": []}
+    like = f"%{keyword}%"
+    from .models import Author
+    author_ids = [a.id for a in db.query(Author).filter(Author.name.ilike(like)).limit(8).all()]
+    filters = [
+        Book.original_title.ilike(like),
+        Book.chinese_title.ilike(like),
+        Book.isbn13.ilike(like),
+        Book.isbn10.ilike(like),
+        Book.tags.ilike(like),
+        Book.primary_genre.ilike(like),
+        Book.language_name.ilike(like),
+        Book.language_code.ilike(like),
+    ]
+    if author_ids:
+        filters.append(Book.author_id.in_(author_ids))
+    books = db.query(Book).filter(or_(*filters)).order_by(Book.is_featured.desc(), Book.id.desc()).limit(8).all()
+    return {
+        "results": [
+            {
+                "slug": b.slug,
+                "title": b.original_title,
+                "chinese": b.chinese_title,
+                "cover": b.cover_image,
+            }
+            for b in books
+        ]
+    }
 
 
 @app.get("/robots.txt")

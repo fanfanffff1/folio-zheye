@@ -48,7 +48,7 @@ def test_home_ok():
     assert "跨越语言，遇见故事" in r.text
     assert "开始翻阅本期新书" in r.text
     assert "folio-mark.png" in r.text
-    assert "/static/img/shelf.png" in r.text
+    assert "/static/img/shelf-transparent.png" in r.text
     assert "/static/img/lang-en.jpg" in r.text
     assert "/static/img/lang-fr.jpg" in r.text
     assert "/static/img/lang-es.jpg" in r.text
@@ -57,6 +57,8 @@ def test_home_ok():
     assert "/static/img/lang-it.jpg" in r.text
     assert "page-home" in r.text
     assert "bg-home-desktop.jpg" in r.text
+    assert "英文新书重点推荐" not in r.text
+    assert "其他语言推荐" not in r.text
     for native in ["English", "Français", "Español", "日本語", "한국어", "Italiano"]:
         assert native in r.text
 
@@ -129,6 +131,18 @@ def test_rating_upsert_and_comment(tmp_path=None):
     assert r6.status_code == 400
     comments = c.get(f"/api/books/{book.slug}/comments").json()["comments"]
     assert any(x["id"] == cid for x in comments)
+    spoil = c.post(
+        f"/api/books/{book.slug}/comments",
+        json={"nickname": "fan", "content": "结局其实是……", "csrf": csrf, "spoiler": True},
+    )
+    assert spoil.status_code == 200
+    listed = c.get(f"/api/books/{book.slug}/comments?sort=popular").json()["comments"]
+    spoil_row = next(x for x in listed if x["id"] == spoil.json()["id"])
+    assert spoil_row["containsSpoiler"] is True
+    assert not spoil_row["content"].startswith("[剧透]")
+    sug = c.get("/api/search/suggest?q=Sleeping")
+    assert sug.status_code == 200
+    assert sug.json()["results"]
     r7 = c.post(f"/api/comments/{cid}/delete", json={"csrf": csrf})
     assert r7.status_code == 200
 
@@ -176,3 +190,30 @@ def test_no_shop_links_on_home():
     text = client().get("/").text.lower()
     for bad in ["amazon", "bookshop.org", "taobao", "jd.com", "mailto:", "kindle"]:
         assert bad not in text
+
+
+def test_book_detail_layout():
+    c = client()
+    db = SessionLocal()
+    book = db.query(Book).filter(Book.is_featured.is_(True), Book.language_code == "ja").first()
+    db.close()
+    assert book
+    r = c.get(f"/books/{book.slug}")
+    assert r.status_code == 200
+    assert "返回首页" in r.text
+    assert "一起聊聊这本书" in r.text
+    assert "读者评分" in r.text
+    assert "内容简介" in r.text or "简介" in r.text
+    assert "page-book" in r.text
+    assert "bg-detail-desktop.jpg" in r.text
+    assert "mailto:" not in r.text
+    assert "data-lightbox" in r.text
+    assert "data-suggest" in r.text
+    assert "上一本" in r.text
+    assert "下一本" in r.text
+    assert "你可能还会喜欢" in r.text
+    assert "购买" not in r.text or "不提供购买" in r.text
+    assert "amazon" not in r.text.lower()
+    missing = c.get("/books/not-a-real-slug")
+    assert missing.status_code == 404
+    assert "没有找到这本书" in missing.text

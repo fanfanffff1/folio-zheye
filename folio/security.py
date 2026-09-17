@@ -42,10 +42,12 @@ def get_or_set_visitor(request: Request, response: Response) -> str:
         )
     csrf = request.cookies.get(CSRF_COOKIE)
     if not csrf:
+        csrf = secrets.token_urlsafe(24)
         response.set_cookie(
-            CSRF_COOKIE, secrets.token_urlsafe(24), httponly=False, samesite="lax",
+            CSRF_COOKIE, csrf, httponly=False, samesite="lax",
             max_age=60 * 60 * 24 * 400, path="/"
         )
+    request.state.csrf = csrf
     return vid
 
 

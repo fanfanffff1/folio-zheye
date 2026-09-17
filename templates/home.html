@@ -5,7 +5,7 @@
     <div class="hero-copy">
       <p class="hand-script side-script" aria-hidden="true">A Kinder World Through Books</p>
       <div class="folio-mark">
-        <img class="folio-lockup" src="/static/img/folio-mark.png" width="909" height="321" alt="" />
+        <img class="folio-lockup" src="/static/img/folio-mark.png" width="1996" height="788" alt="" />
         <p class="sr-only">FOLIO 折页</p>
         <p class="folio-date">{{ issue_year }} · {{ month_en }}</p>
       </div>
@@ -31,7 +31,7 @@
         <div class="shelf-row shelf-row-1">
           {% for book in english[:4] %}
           <a class="shelf-book tilt-{{ loop.index }}" href="/books/{{ book.slug }}">
-            <img class="cover" src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="180" height="270" loading="eager" />
+            <img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="120" height="180" loading="eager" />
           </a>
           {% endfor %}
         </div>
@@ -39,11 +39,11 @@
         <div class="shelf-row shelf-row-2">
           {% for book in english[4:] %}
           <a class="shelf-book tilt-{{ loop.index + 4 }}" href="/books/{{ book.slug }}">
-            <img class="cover" src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="180" height="270" loading="eager" />
+            <img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="120" height="180" loading="eager" />
           </a>
           {% endfor %}
         </div>
-        <img class="shelf-art" src="/static/img/shelf.png" width="1024" height="576" alt="" />
+        <img class="shelf-art" src="/static/img/shelf-transparent.png" width="1672" height="941" alt="" />
       </div>
     </div>
   </div>
@@ -65,41 +65,6 @@
     <button class="lang-next" type="button" data-lang-next aria-label="查看更多语言">→</button>
   </div>
   <p class="scroll-hint">左右滑动查看更多语言</p>
-</section>
-
-<section class="section">
-  <p class="kicker">English · Issue</p>
-  <h2>英文新书重点推荐</h2>
-  <div class="feature-spread">
-    {% for book in english %}
-    <article class="paper-card">
-      <a href="/books/{{ book.slug }}"><img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="220" height="330" loading="lazy" /></a>
-      <p class="num">0{{ loop.index }}</p>
-      <h3><a href="/books/{{ book.slug }}">{{ book.original_title }}</a></h3>
-      <p>{{ book.chinese_title }} · {{ book.author.name if book.author else "" }}</p>
-      <p class="quote">{{ book.editor_quote_zh }}</p>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-
-<section class="section">
-  <p class="kicker">Languages</p>
-  <h2>其他语言推荐</h2>
-  <div class="lang-grid">
-    {% for block in others %}
-    <article class="lang-box">
-      <p class="kicker">{{ block.meta.native }}</p>
-      <h3><a href="/recommendations/{{ block.code }}">{{ block.meta.zh }}原版新书</a></h3>
-      <p>本期八本 2026 年新书，可单独访问、分享。</p>
-      <div class="mini-covers">
-        {% for book in block.books %}
-        <a href="/books/{{ book.slug }}"><img src="{{ book.cover_image }}" alt="{{ book.original_title }} 封面" width="90" height="135" loading="lazy" /></a>
-        {% endfor %}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
 </section>
 
 <section class="section">
